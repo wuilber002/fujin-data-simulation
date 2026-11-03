@@ -1,0 +1,14 @@
+.:53 {
+    # All private AWS/OCI endpoint names in the Fujin zone terminate on the
+    # provider service.  Public AWS/OCI names are intentionally untouched.
+    template IN A fujin.internal {
+        match ^.*\.fujin\.internal\.?$
+        answer "{{ .Name }} 60 IN A 172.30.0.10"
+    }
+    # Use the container runtime's resolver for names outside the private
+    # Fujin zone. Docker and Podman expose different internal resolver IPs;
+    # hard-coding Docker's 127.0.0.11 breaks the native Oracle Linux launcher.
+    forward . /etc/resolv.conf
+    cache 30
+    errors
+}

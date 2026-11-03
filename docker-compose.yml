@@ -1,0 +1,37 @@
+services:
+  fujin-local:
+    build: .
+    restart: unless-stopped
+    environment:
+      FUJIN_LOCAL_DATABASE_URL: sqlite+pysqlite:////var/lib/fujin/catalog.db
+      FUJIN_LOCAL_PAYLOAD_ROOT: /var/lib/fujin/payloads
+      FUJIN_LOCAL_STAGING_ROOT: /var/lib/fujin/staging
+    ports:
+      - "${FUJIN_BIND_HOST:-127.0.0.1}:${FUJIN_BIND_PORT:-8090}:8080"
+    volumes:
+      - fujin-data:/var/lib/fujin
+
+  fujin-materializer:
+    build: .
+    restart: unless-stopped
+    command: ["python3", "-m", "app.fujin_local_materializer"]
+    environment:
+      FUJIN_LOCAL_DATABASE_URL: sqlite+pysqlite:////var/lib/fujin/catalog.db
+      FUJIN_LOCAL_PAYLOAD_ROOT: /var/lib/fujin/payloads
+      FUJIN_LOCAL_STAGING_ROOT: /var/lib/fujin/staging
+    volumes:
+      - fujin-data:/var/lib/fujin
+
+  fujin-simulator:
+    build: .
+    restart: unless-stopped
+    command: ["uvicorn", "app.simulator:app", "--host", "0.0.0.0", "--port", "8091"]
+    environment:
+      FUJIN_SIMULATOR_DATABASE_URL: sqlite+pysqlite:////var/lib/fujin/simulator.db
+    ports:
+      - "${FUJIN_SIMULATOR_BIND_HOST:-127.0.0.1}:${FUJIN_SIMULATOR_BIND_PORT:-8091}:8091"
+    volumes:
+      - fujin-data:/var/lib/fujin
+
+volumes:
+  fujin-data:
