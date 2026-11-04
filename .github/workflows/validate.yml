@@ -1,0 +1,63 @@
+name: Validate Fujin
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt pytest
+      - name: Compile application modules
+        run: python -m compileall -q app scripts
+      - name: Validate operational shell scripts
+        run: bash -n scripts/install-fujin.sh scripts/start-fujin.sh scripts/stop-fujin.sh scripts/run-fujin-provider.sh
+      - name: Run contract suite
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONPATH: .
+        run: pytest -q -p no:cacheprovider
+
+  container:
+    name: Container smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build --tag fujin-data-simulation:ci .
+      - name: Start Fujin Provider
+        run: >-
+          docker run -d --name fujin-provider-ci -p 18090:8080
+          -e FUJIN_PROVIDER_DATABASE_URL=sqlite+pysqlite:////tmp/provider.db
+          -e FUJIN_PROVIDER_PAYLOAD_ROOT=/tmp/payloads
+          -e FUJIN_PROVIDER_STAGING_ROOT=/tmp/staging
+          fujin-data-simulation:ci
+      - name: Verify Provider readiness and contract
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18090/readyz >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --show-error http://127.0.0.1:18090/readyz
+          curl --fail --show-error http://127.0.0.1:18090/v1/provider/handshake
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs fujin-provider-ci || true
+      - name: Stop Provider
+        if: always()
+        run: docker rm -f fujin-provider-ci || true
