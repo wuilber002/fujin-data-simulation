@@ -17,6 +17,8 @@ loopback unless it is protected by an equivalent private network boundary.
 docker compose up --build -d
 curl -fsS http://127.0.0.1:8090/healthz
 curl -fsS http://127.0.0.1:8091/healthz
+curl -fsS http://127.0.0.1:8090/readyz
+curl -fsS http://127.0.0.1:8091/readyz
 ```
 
 The Fujin administration console is available at
@@ -42,6 +44,8 @@ curl -fsSL https://raw.githubusercontent.com/wuilber002/fujin-data-simulation/ma
 sudo systemctl status fujin-data-simulation.service
 curl -fsS http://127.0.0.1:8090/healthz
 curl -fsS http://127.0.0.1:8091/healthz
+curl -fsS http://127.0.0.1:8090/readyz
+curl -fsS http://127.0.0.1:8091/readyz
 ```
 
 Para expor os serviços com TLS, coloque um proxy reverso à frente dos dois

@@ -10,6 +10,11 @@ services:
       - "${FUJIN_BIND_HOST:-127.0.0.1}:${FUJIN_BIND_PORT:-8090}:8080"
     volumes:
       - fujin-data:/var/lib/fujin
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/readyz').read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
 
   fujin-materializer:
     build: .
@@ -21,6 +26,9 @@ services:
       FUJIN_LOCAL_STAGING_ROOT: /var/lib/fujin/staging
     volumes:
       - fujin-data:/var/lib/fujin
+    depends_on:
+      fujin-local:
+        condition: service_healthy
 
   fujin-simulator:
     build: .
@@ -32,6 +40,11 @@ services:
       - "${FUJIN_SIMULATOR_BIND_HOST:-127.0.0.1}:${FUJIN_SIMULATOR_BIND_PORT:-8091}:8091"
     volumes:
       - fujin-data:/var/lib/fujin
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/readyz').read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
 
 volumes:
   fujin-data:

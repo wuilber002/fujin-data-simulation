@@ -62,6 +62,8 @@ def test_simulator_api_exposes_versioned_end_to_end_data_path(tmp_path, monkeypa
     assert status == 200
     assert handshake["operations_enabled"] is True
     assert "discarding-destination-v1" in handshake["capabilities"]
+    status, readiness = get("/readyz")
+    assert status == 200 and readiness["ready"] is True
 
     _, scenario = post(
         "/v1/scenarios",

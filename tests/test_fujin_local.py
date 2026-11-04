@@ -81,6 +81,17 @@ def test_sqlite_catalogue_uses_wal_and_bounded_busy_wait(tmp_path, monkeypatch):
         module.engine.dispose()
 
 
+def test_provider_readiness_confirms_catalogue_and_payload_paths(tmp_path, monkeypatch):
+    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'ready.db'}")
+    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(Path(tmp_path) / "payloads"))
+    monkeypatch.setenv("FUJIN_LOCAL_STAGING_ROOT", str(Path(tmp_path) / "staging"))
+    import app.fujin_local as module
+    module = importlib.reload(module)
+    module.startup()
+    assert module.readyz() == {"status": "ready", "service": "fujin-local"}
+    assert module.PAYLOAD_ROOT.is_dir() and module.STAGING_ROOT.is_dir()
+
+
 def test_local_dataset_generation_is_queued_without_a_host_path(tmp_path, monkeypatch):
     monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'generation.db'}")
     import app.fujin_local as module

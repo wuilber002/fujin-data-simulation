@@ -43,5 +43,21 @@ podman run -d --name fujin-simulator --restart unless-stopped --network "$networ
   -e FUJIN_SIMULATOR_DATABASE_URL=sqlite+pysqlite:////var/lib/fujin/simulator.db \
   "$image" sh -c 'python3 scripts/migrate-fujin-simulator.py && exec uvicorn app.simulator:app --host 0.0.0.0 --port 8091' >/dev/null
 
+wait_ready() {
+  local container="$1" port="$2" attempt
+  for attempt in $(seq 1 30); do
+    if podman exec "$container" python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${port}/readyz', timeout=2).read()" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "${container} did not become ready" >&2
+  podman logs "$container" >&2 || true
+  return 1
+}
+
+wait_ready fujin-local 8080
+wait_ready fujin-simulator 8091
+
 echo "Fujin console: http://${local_host}:${local_port}/console"
 echo "Fujin simulator: http://${simulator_host}:${simulator_port}/healthz"

@@ -209,6 +209,14 @@ def healthcheck() -> SimulatorHealth:
     return SimulatorHealth(ready=ready, detail=error)
 
 
+@app.get("/readyz", response_model=SimulatorHealth)
+def readyz() -> SimulatorHealth:
+    ready, error = operations_ready()
+    if not ready:
+        raise HTTPException(status_code=503, detail=error or "Fujin simulator is not ready")
+    return SimulatorHealth(ready=True)
+
+
 @app.get("/v1/handshake", response_model=SimulatorHandshake)
 def handshake() -> SimulatorHandshake:
     ready, _ = operations_ready()

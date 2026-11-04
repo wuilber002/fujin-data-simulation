@@ -32,7 +32,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import create_engine, event, func, or_, select
+from sqlalchemy import create_engine, event, func, or_, select, text
 from sqlalchemy.exc import OperationalError, TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -1123,7 +1123,7 @@ async def local_data_plane_guard(request: Request, call_next):
     The admin surface remains reachable to provision and inspect resources;
     no request ever reaches Raijin to toggle this state.
     """
-    administrative_paths = {"/healthz", "/console", "/docs", "/openapi.json", "/redoc"}
+    administrative_paths = {"/healthz", "/readyz", "/console", "/docs", "/openapi.json", "/redoc"}
     path = request.url.path
     if (path in administrative_paths or path.startswith("/api/local/")
             or path.startswith("/static/")):
@@ -1262,6 +1262,19 @@ def unsupported_s3(operation: str) -> None:
 @app.get("/healthz")
 def health() -> dict:
     return {"status": "ok", "service": "fujin-local"}
+
+
+@app.get("/readyz")
+def readyz() -> dict:
+    """Confirm that the independent provider catalogue can serve requests."""
+    try:
+        with SessionLocal() as session:
+            session.execute(text("SELECT 1"))
+        PAYLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+        STAGING_ROOT.mkdir(parents=True, exist_ok=True)
+    except Exception as error:
+        raise HTTPException(503, "Fujin provider is not ready") from error
+    return {"status": "ready", "service": "fujin-local"}
 
 
 @app.get("/n")
