@@ -28,7 +28,7 @@ def test_simulation_rejects_physical_payload_models_and_dataset_references():
             )
             raise AssertionError("SIMULATION accepted a physical payload request")
         except ValueError as error:
-            assert "Fujin LOCAL" in str(error)
+            assert "Fujin Provider" in str(error)
 
 
 def test_simulation_deterministic_materialization_needs_no_dataset_or_mount():

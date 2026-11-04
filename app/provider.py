@@ -1,4 +1,4 @@
-"""Administrative API for the decoupled Fujin LOCAL provider.
+"""Administrative API for the decoupled Fujin Provider.
 
 This process is intentionally separate from ``app.main``.  It owns neither
 consumer sources nor simulator state; it only provisions provider resources
@@ -39,13 +39,13 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import ClientDisconnect
 
 from app.aws_restore_semantics import s3_restore_expiry, utc_datetime
-from app.fujin_local_schema import LocalAuditEvent, LocalBatchJob, LocalCloudProviderState, LocalControlObject, LocalDataset, LocalDatasetGenerationJob, LocalMultipartPart, LocalMultipartUpload, LocalOciBucket, LocalOciObject, LocalProviderState, LocalRestore, LocalS3Bucket, LocalStsSession, migrate
-from app.fujin_local_materializer import LocalMaterializationError, normalized_profile
+from app.provider_schema import LocalAuditEvent, LocalBatchJob, LocalCloudProviderState, LocalControlObject, LocalDataset, LocalDatasetGenerationJob, LocalMultipartPart, LocalMultipartUpload, LocalOciBucket, LocalOciObject, LocalProviderState, LocalRestore, LocalS3Bucket, LocalStsSession, migrate
+from app.provider_materializer import LocalMaterializationError, normalized_profile
 
 
-DATABASE_URL = os.environ.get("FUJIN_LOCAL_DATABASE_URL", "sqlite+pysqlite:////tmp/fujin-local.db")
-SQLITE_BUSY_TIMEOUT_SECONDS = max(1, int(os.environ.get("FUJIN_LOCAL_SQLITE_BUSY_TIMEOUT_SECONDS", "30")))
-SQLITE_LOCK_RETRY_ATTEMPTS = max(0, int(os.environ.get("FUJIN_LOCAL_SQLITE_LOCK_RETRY_ATTEMPTS", "3")))
+DATABASE_URL = os.environ.get("FUJIN_PROVIDER_DATABASE_URL", "sqlite+pysqlite:////tmp/fujin-provider.db")
+SQLITE_BUSY_TIMEOUT_SECONDS = max(1, int(os.environ.get("FUJIN_PROVIDER_SQLITE_BUSY_TIMEOUT_SECONDS", "30")))
+SQLITE_LOCK_RETRY_ATTEMPTS = max(0, int(os.environ.get("FUJIN_PROVIDER_SQLITE_LOCK_RETRY_ATTEMPTS", "3")))
 _sqlite_database = DATABASE_URL.startswith("sqlite")
 engine = create_engine(
     DATABASE_URL,
@@ -83,33 +83,33 @@ if _sqlite_database:
                     raise
                 sleep(0.05 * (2 ** attempt))
 SessionLocal = sessionmaker(bind=engine)
-app = FastAPI(title="Fujin LOCAL", version="0.1.0")
+app = FastAPI(title="Fujin Provider", version="0.1.0")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
-PAYLOAD_ROOT = Path(os.environ.get("FUJIN_LOCAL_PAYLOAD_ROOT", "/var/lib/fujin-local-payloads"))
-STAGING_ROOT = Path(os.environ.get("FUJIN_LOCAL_STAGING_ROOT", "/var/lib/fujin-local-staging"))
-OCI_ALLOWED_IDENTITIES = frozenset(item.strip() for item in os.environ.get("FUJIN_LOCAL_OCI_ALLOWED_KEY_IDS", "").split(",") if item.strip())
-AWS_LOCAL_REGION = os.environ.get(
-    "FUJIN_LOCAL_AWS_REGION", os.environ.get("FUJIN_LOCAL_REGION", "us-east-1")
+PAYLOAD_ROOT = Path(os.environ.get("FUJIN_PROVIDER_PAYLOAD_ROOT", "/var/lib/fujin-provider-payloads"))
+STAGING_ROOT = Path(os.environ.get("FUJIN_PROVIDER_STAGING_ROOT", "/var/lib/fujin-provider-staging"))
+OCI_ALLOWED_IDENTITIES = frozenset(item.strip() for item in os.environ.get("FUJIN_PROVIDER_OCI_ALLOWED_KEY_IDS", "").split(",") if item.strip())
+AWS_PROVIDER_REGION = os.environ.get(
+    "FUJIN_PROVIDER_AWS_REGION", os.environ.get("FUJIN_PROVIDER_REGION", "us-east-1")
 ).strip()
-OCI_LOCAL_REGION = os.environ.get("FUJIN_LOCAL_OCI_REGION", "sa-saopaulo-1").strip()
+OCI_PROVIDER_REGION = os.environ.get("FUJIN_PROVIDER_OCI_REGION", "sa-saopaulo-1").strip()
 # Compatibility alias for the existing AWS/S3 implementation and deployments.
-LOCAL_REGION = AWS_LOCAL_REGION
-LOCAL_CA_BUNDLE_PATH = os.environ.get("FUJIN_LOCAL_CA_BUNDLE_PATH", "/etc/fujin-local-ca/fujin-local.crt").strip()
+PROVIDER_REGION = AWS_PROVIDER_REGION
+PROVIDER_CA_BUNDLE_PATH = os.environ.get("FUJIN_PROVIDER_CA_BUNDLE_PATH", "/etc/fujin-provider-ca/fujin-provider.crt").strip()
 S3_STORAGE_CLASSES = frozenset({
     "STANDARD", "STANDARD_IA", "ONEZONE_IA", "INTELLIGENT_TIERING",
     "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE",
 })
-FUJIN_LOCAL_AUDIT_SUCCESS_RETENTION_HOURS = max(
-    24, int(os.environ.get("FUJIN_LOCAL_AUDIT_SUCCESS_RETENTION_HOURS", "72"))
+FUJIN_PROVIDER_AUDIT_SUCCESS_RETENTION_HOURS = max(
+    24, int(os.environ.get("FUJIN_PROVIDER_AUDIT_SUCCESS_RETENTION_HOURS", "72"))
 )
-FUJIN_LOCAL_MULTIPART_IDLE_TTL_HOURS = max(
-    1, int(os.environ.get("FUJIN_LOCAL_MULTIPART_IDLE_TTL_HOURS", "24"))
+FUJIN_PROVIDER_MULTIPART_IDLE_TTL_HOURS = max(
+    1, int(os.environ.get("FUJIN_PROVIDER_MULTIPART_IDLE_TTL_HOURS", "24"))
 )
 # A restore poll can issue hundreds of HEADs. Provider enablement is an
 # administrative toggle, not per-object data, so a very short cache avoids a
 # catalogue checkout for every HEAD. Mutating endpoints invalidate it.
-FUJIN_LOCAL_PROVIDER_STATE_CACHE_SECONDS = max(
-    0.1, float(os.environ.get("FUJIN_LOCAL_PROVIDER_STATE_CACHE_SECONDS", "2"))
+FUJIN_PROVIDER_STATE_CACHE_SECONDS = max(
+    0.1, float(os.environ.get("FUJIN_PROVIDER_STATE_CACHE_SECONDS", "2"))
 )
 _data_plane_provider_cache: dict[str, tuple[bool, float]] = {}
 _data_plane_metrics = {
@@ -178,7 +178,7 @@ def touch_multipart_upload(upload: LocalMultipartUpload, now: datetime | None = 
     """
     reference = now or utcnow()
     upload.last_activity_at = reference
-    upload.expires_at = reference + timedelta(hours=FUJIN_LOCAL_MULTIPART_IDLE_TTL_HOURS)
+    upload.expires_at = reference + timedelta(hours=FUJIN_PROVIDER_MULTIPART_IDLE_TTL_HOURS)
 
 
 def cleanup_success_audit_events(session: Session, now: datetime | None = None,
@@ -190,7 +190,7 @@ def cleanup_success_audit_events(session: Session, now: datetime | None = None,
         if not force and monotonic_now - _audit_retention_last_run < 3600:
             return 0
         _audit_retention_last_run = monotonic_now
-    cutoff = (now or utcnow()) - timedelta(hours=FUJIN_LOCAL_AUDIT_SUCCESS_RETENTION_HOURS)
+    cutoff = (now or utcnow()) - timedelta(hours=FUJIN_PROVIDER_AUDIT_SUCCESS_RETENTION_HOURS)
     return int(session.query(LocalAuditEvent).filter(
         LocalAuditEvent.status_code < 400,
         LocalAuditEvent.operation.in_(AUDIT_RETENTION_OPERATIONS),
@@ -301,7 +301,7 @@ def require_oci_identity(request: Request) -> str:
     matched = re.search(r'keyId="([^"]+)"', authorization)
     identity = matched.group(1) if matched else "anonymous"
     if OCI_ALLOWED_IDENTITIES and identity not in OCI_ALLOWED_IDENTITIES:
-        raise HTTPException(403, "OCI LOCAL caller is not in the configured workload allowlist")
+        raise HTTPException(403, "OCI Provider caller is not in the configured workload allowlist")
     return identity
 
 
@@ -341,7 +341,7 @@ def data_plane_provider_enabled(provider: str) -> bool:
     now = perf_counter()
     with _data_plane_state_lock:
         cached = _data_plane_provider_cache.get(provider)
-        if cached and now - cached[1] < FUJIN_LOCAL_PROVIDER_STATE_CACHE_SECONDS:
+        if cached and now - cached[1] < FUJIN_PROVIDER_STATE_CACHE_SECONDS:
             _data_plane_metrics["provider_state_cache_hits"] += 1
             return cached[0]
         # Keep the miss single-flight. Releasing this lock before the read
@@ -366,7 +366,7 @@ def data_plane_metrics_snapshot() -> dict[str, int | float]:
         return {
             **_data_plane_metrics,
             "provider_state_cache_entries": len(_data_plane_provider_cache),
-            "provider_state_cache_ttl_seconds": FUJIN_LOCAL_PROVIDER_STATE_CACHE_SECONDS,
+            "provider_state_cache_ttl_seconds": FUJIN_PROVIDER_STATE_CACHE_SECONDS,
             "database_pool_size": pool_metric("size"),
             "database_pool_checked_out": pool_metric("checkedout"),
             "database_pool_overflow": pool_metric("overflow"),
@@ -375,7 +375,7 @@ def data_plane_metrics_snapshot() -> dict[str, int | float]:
 
 def require_local_provider_enabled(session: Session, provider: str) -> None:
     if not cloud_provider_state(session, provider).enabled:
-        raise HTTPException(503, f"Fujin LOCAL {provider.upper()} data plane is disabled; enable it in the Fujin console")
+        raise HTTPException(503, f"Fujin Provider {provider.upper()} data plane is disabled; enable it in the Fujin console")
 
 
 def require_bucket_name(value: str) -> str:
@@ -397,7 +397,7 @@ def local_oci_bucket(session: Session, namespace: str, name: str) -> LocalOciBuc
         LocalOciBucket.active.is_(True), LocalOciBucket.deleted_at.is_(None),
     ))
     if not bucket:
-        raise HTTPException(404, "OCI LOCAL bucket not found")
+        raise HTTPException(404, "OCI Provider bucket not found")
     return bucket
 
 
@@ -406,7 +406,7 @@ def source_reference_for_digest(session: Session, size: int, digest: str) -> tup
         for item in json.loads(dataset.manifest_json or "{}").get("objects", []):
             if int(item.get("size_bytes", -1)) == size and str(item.get("sha256", "")).lower() == digest:
                 return dataset, item
-    raise HTTPException(422, "OCI LOCAL accepts only bytes that match a Fujin REPRESENTATIVE snapshot")
+    raise HTTPException(422, "OCI Provider accepts only bytes that match a Fujin REPRESENTATIVE snapshot")
 
 
 def source_reference_for_bytes(session: Session, payload: bytes) -> tuple[LocalDataset, dict]:
@@ -1073,7 +1073,7 @@ class DatasetPackageCreate(BaseModel):
 
 
 class DatasetGenerateCreate(BaseModel):
-    """High-level LOCAL dataset request; it deliberately contains no path."""
+    """High-level provider dataset request; it deliberately contains no path."""
     name: str = Field(min_length=1, max_length=255)
     quota_bytes: int = Field(gt=0)
     seed: str = Field(min_length=1, max_length=255)
@@ -1090,7 +1090,7 @@ class S3BucketCreate(BaseModel):
 
 
 class S3RestorePolicyUpdate(BaseModel):
-    """Mutable delivery contract for future LOCAL S3 restore requests only."""
+    """Mutable delivery contract for future Provider S3 restore requests only."""
     restore_policy: dict
 
 
@@ -1118,7 +1118,7 @@ def startup() -> None:
 
 @app.middleware("http")
 async def local_data_plane_guard(request: Request, call_next):
-    """Keep private cloud APIs inert until Fujin LOCAL is explicitly enabled.
+    """Keep private cloud APIs inert until Fujin Provider is explicitly enabled.
 
     The admin surface remains reachable to provision and inspect resources;
     no request ever reaches Raijin to toggle this state.
@@ -1139,7 +1139,7 @@ async def local_data_plane_guard(request: Request, call_next):
         identifier = request_id()
         return JSONResponse(
             status_code=503,
-            content={"detail": "Fujin LOCAL control catalogue is briefly unavailable; retry the request", "request_id": identifier},
+            content={"detail": "Fujin Provider control catalogue is briefly unavailable; retry the request", "request_id": identifier},
             headers={"Retry-After": "1", "x-fujin-request-id": identifier},
         )
     if not enabled:
@@ -1150,7 +1150,7 @@ async def local_data_plane_guard(request: Request, call_next):
         except (OperationalError, SQLAlchemyTimeoutError):
             identifier = request_id()
         return JSONResponse(status_code=503,
-                            content={"detail": f"Fujin LOCAL {provider} data plane is disabled; enable it in the Fujin console", "request_id": identifier},
+                            content={"detail": f"Fujin Provider {provider} data plane is disabled; enable it in the Fujin console", "request_id": identifier},
                             headers={"x-fujin-request-id": identifier})
     started = perf_counter()
     try:
@@ -1169,7 +1169,7 @@ async def local_data_plane_guard(request: Request, call_next):
             _data_plane_metrics["database_transient_rejections"] += 1
         return JSONResponse(
             status_code=503,
-            content={"detail": "Fujin LOCAL catalogue is briefly busy; retry the request", "request_id": identifier},
+            content={"detail": "Fujin Provider catalogue is briefly busy; retry the request", "request_id": identifier},
             headers={"Retry-After": "1", "x-fujin-request-id": identifier},
         )
     except SQLAlchemyTimeoutError:
@@ -1178,7 +1178,7 @@ async def local_data_plane_guard(request: Request, call_next):
         identifier = request_id()
         return JSONResponse(
             status_code=503,
-            content={"detail": "Fujin LOCAL catalogue is briefly busy; retry the request", "request_id": identifier},
+            content={"detail": "Fujin Provider catalogue is briefly busy; retry the request", "request_id": identifier},
             headers={"Retry-After": "1", "x-fujin-request-id": identifier},
         )
     except Exception as error:
@@ -1189,7 +1189,7 @@ async def local_data_plane_guard(request: Request, call_next):
         header_name = "opc-request-id" if provider == "OCI" else "x-amz-request-id"
         return JSONResponse(
             status_code=500,
-            content={"detail": "Fujin LOCAL provider request failed unexpectedly; retry or inspect the request ID", "request_id": identifier},
+            content={"detail": "Fujin Provider request failed unexpectedly; retry or inspect the request ID", "request_id": identifier},
             headers={header_name: identifier, "x-fujin-request-id": identifier},
         )
     identifier = response.headers.get("x-amz-request-id") or response.headers.get("opc-request-id") or response.headers.get("x-fujin-request-id")
@@ -1256,12 +1256,12 @@ async def local_http_error(request: Request, error: StarletteHTTPException) -> J
 
 
 def unsupported_s3(operation: str) -> None:
-    raise HTTPException(400, f"Unsupported S3 LOCAL operation: {operation}")
+    raise HTTPException(400, f"Unsupported S3 Provider operation: {operation}")
 
 
 @app.get("/healthz")
 def health() -> dict:
-    return {"status": "ok", "service": "fujin-local"}
+    return {"status": "ok", "service": "fujin-provider"}
 
 
 @app.get("/readyz")
@@ -1274,7 +1274,7 @@ def readyz() -> dict:
         STAGING_ROOT.mkdir(parents=True, exist_ok=True)
     except Exception as error:
         raise HTTPException(503, "Fujin provider is not ready") from error
-    return {"status": "ready", "service": "fujin-local"}
+    return {"status": "ready", "service": "fujin-provider"}
 
 
 @app.get("/n")
@@ -1290,13 +1290,13 @@ def oci_get_namespace(request: Request, namespace: str = "local", session: Sessi
 @app.get("/console", response_class=HTMLResponse)
 def console() -> str:
     """Small dedicated console; it never exposes Raijin migration controls."""
-    return """<!doctype html><html><head><meta charset='utf-8'><title>Fujin LOCAL</title><link rel='stylesheet' href='static/operational-shell.css?v=20260910-1'><script src='static/operational-shell.js?v=20260910-1'></script>
+    return """<!doctype html><html><head><meta charset='utf-8'><title>Fujin Provider</title><link rel='stylesheet' href='static/operational-shell.css?v=20260910-1'><script src='static/operational-shell.js?v=20260910-1'></script>
 <style>body{font:15px system-ui;background:#101b2e;color:#e6efff;margin:2rem}main{max-width:1200px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:1rem}.card{background:#182640;padding:1rem;border-radius:.5rem}pre{white-space:pre-wrap;max-height:22rem;overflow:auto}input,textarea,button{box-sizing:border-box;padding:.5rem;margin:.2rem 0;width:100%}button{background:#31517b;color:#fff;border:1px solid #7797c1;border-radius:.3rem;cursor:pointer}.warn{background:#884d00}.note{color:#9fc4ff}
 /* Fujin uses an independent dark operational language. */
 html,body,*{overflow-anchor:none}html{scroll-behavior:auto}body{margin:0;padding:7.2rem 2rem 5.25rem;background:#101827;color:#e7eefb}.app-banner.fujin-topbar{z-index:30;min-height:78px;padding:.65rem max(1.4rem,calc((100vw - 1440px)/2 + 2rem));background:#0b1323f5}.fujin-brand{font-weight:900;letter-spacing:.1em}.fujin-brand-mark{background:linear-gradient(135deg,#0f766e,#1d4ed8);font-size:24px;box-shadow:0 0 17px #2dd4bf66}.fujin-view{display:none}.fujin-view.active{display:block}.fujin-view-title{margin:.1rem 0 .8rem}.fujin-view-kicker{color:#2dd4bf;font-size:.75rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.fujin-view .card{margin:1rem 0}.fujin-view .grid{display:block}.fujin-view .card h2{margin-top:0}.fujin-status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.8rem;margin:1rem 0}.fujin-compact-metrics{grid-auto-flow:column;grid-template-columns:none;justify-content:start;overflow-x:auto;padding-bottom:.2rem}.fujin-compact-metrics .fujin-metric{min-width:0;overflow-wrap:anywhere}.fujin-metric{padding:.85rem;border:1px solid #52627e;border-radius:8px;background:#0d1524}.fujin-metric b{display:block;margin-top:.3rem;font-size:1.24rem}.fujin-metric.good{border-color:#2dd4bf}.fujin-metric.warn{border-color:#fbbf24}.fujin-metric.bad{border-color:#f87171}#fujin-main{width:min(1440px,100%);margin:0 auto}#fujin-main form{display:grid;gap:.45rem}#fujin-main button{width:max-content;margin:0}#fujin-main input,#fujin-main textarea,#fujin-main select{margin:0}.fujin-table-wrap{overflow-x:auto;border:1px solid #334155;border-radius:8px}.fujin-table{width:100%;border-collapse:collapse;min-width:900px}.fujin-table th,.fujin-table td{padding:.7rem .8rem;text-align:left;border-bottom:1px solid #334155;vertical-align:middle}.fujin-table th{color:#bfdbfe;font-size:.82rem}.fujin-table tr:last-child td{border-bottom:0}.fujin-status{display:inline-flex;padding:.16rem .55rem;border-radius:999px;font-weight:800;font-size:.74rem;border:1px solid}.fujin-status.enabled,.fujin-status.ready{color:#d1fae5;background:#065f46;border-color:#2dd4bf}.fujin-status.disabled,.fujin-status.pending-validation{color:#fef3c7;background:#78350f;border-color:#fbbf24}.fujin-status.invalid{color:#fee2e2;background:#991b1b;border-color:#f87171}.fujin-action-trigger{min-width:112px;padding:.42rem .55rem!important;background:#263752!important;color:#fff;border:1px solid #64748b!important;border-radius:5px}.fujin-action-popover{position:fixed;z-index:1000;display:grid;gap:.3rem;width:196px;padding:.45rem;background:#08111f;border:1px solid #64748b;border-radius:7px;box-shadow:0 12px 28px #0009}.fujin-action-popover button{width:100%!important;text-align:left!important}.fujin-action-popover button.danger{background:#7f1d1d;border-color:#ef4444}.fujin-action-popover button:disabled{opacity:.58;cursor:not-allowed}.fujin-empty{padding:1rem;color:#9fc4ff}.fujin-inline-message{min-height:1.5rem;margin:.7rem 0;color:#bfdbfe}.fujin-inline-message.error{color:#fecaca}.fujin-modal{position:fixed;z-index:1100;inset:0;display:flex;align-items:center;justify-content:center;padding:1rem;background:#020617cc}.fujin-modal.hidden{display:none}.fujin-modal-panel{width:min(980px,100%);max-height:90vh;overflow:auto;padding:1.1rem;border:1px solid #64748b;border-radius:10px;background:#182237}.fujin-modal-header{position:sticky;z-index:2;top:-1.1rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:-1.1rem -1.1rem 1rem;padding:1rem 1.1rem;border-bottom:1px solid #334155;background:#182237}.fujin-modal-header h2{margin:0}.fujin-connection-panel{padding:.2rem}.fujin-connection-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:.6rem}.fujin-connection-field{padding:.65rem;background:#08111f;border-radius:6px;overflow-wrap:anywhere}.fujin-connection-field small,.fujin-connection-field b{display:block}.fujin-connection-panel details{margin-top:.8rem}.fujin-connection-panel pre{max-height:16rem}.fujin-filter-grid{grid-template-columns:repeat(5,minmax(150px,1fr))!important;align-items:end}.fujin-filter-actions{display:flex;gap:.45rem;flex-wrap:wrap}.fujin-action-notes{display:grid;gap:.3rem;margin-top:.8rem}.fujin-action-notes p{margin:0}.fujin-pagination{display:flex;align-items:center;justify-content:center;gap:.7rem;margin-top:.8rem}.fujin-audit-resource{max-width:310px;overflow-wrap:anywhere}.fujin-status.http-ok{color:#d1fae5;background:#065f46;border-color:#2dd4bf}.fujin-status.http-error{color:#fee2e2;background:#991b1b;border-color:#f87171}@media(max-width:900px){.fujin-filter-grid{grid-template-columns:1fr 1fr!important}}@media(max-width:760px){body{padding:10rem 1rem 5.25rem}.app-banner.fujin-topbar{padding:.65rem 1rem}.fujin-filter-grid{grid-template-columns:1fr!important}}</style></head>
-<body><header class='app-banner fujin-topbar'><div class='brand fujin-brand'><div class='brand-mark fujin-brand-mark'>⚡</div><div><strong>FUJIN</strong><small>PRIVATE LOCAL CLOUD</small></div></div><div class='banner-clocks'><div class='banner-clock-row'><span class='banner-clock-label'>SYSTEM</span><time id='fujin-clock' class='banner-clock'>--:--:--</time><span class='banner-clock-rate' aria-hidden='true'></span></div></div><nav class='banner-actions fujin-nav' aria-label='Navegação Fujin'><button class='active' data-fujin-view='status'>Status</button><button data-fujin-view='datasets'>Dataset</button><button data-fujin-view='aws'>AWS</button><button data-fujin-view='oci'>OCI</button><button class='gear' data-fujin-view='settings' title='Configurações gerais'>⚙</button></nav></header><main id='fujin-main' class='operational-main'><h1>Fujin LOCAL</h1><p>Administração do provedor privado de simulação.</p><p class='note'>Dados AWS/OCI são privados; credenciais exibidas são sintéticas e não acessam AWS real.</p>
+<body><header class='app-banner fujin-topbar'><div class='brand fujin-brand'><div class='brand-mark fujin-brand-mark'>⚡</div><div><strong>FUJIN</strong><small>PRIVATE LOCAL CLOUD</small></div></div><div class='banner-clocks'><div class='banner-clock-row'><span class='banner-clock-label'>SYSTEM</span><time id='fujin-clock' class='banner-clock'>--:--:--</time><span class='banner-clock-rate' aria-hidden='true'></span></div></div><nav class='banner-actions fujin-nav' aria-label='Navegação Fujin'><button class='active' data-fujin-view='status'>Status</button><button data-fujin-view='datasets'>Dataset</button><button data-fujin-view='aws'>AWS</button><button data-fujin-view='oci'>OCI</button><button class='gear' data-fujin-view='settings' title='Configurações gerais'>⚙</button></nav></header><main id='fujin-main' class='operational-main'><h1>Fujin Provider</h1><p>Administração do provedor privado de simulação.</p><p class='note'>Dados AWS/OCI são privados; credenciais exibidas são sintéticas e não acessam AWS real.</p>
 <div class='grid'><section class='card'><h2>Estado e endpoints</h2><div id='overview'>carregando…</div></section><section class='card'><h2>Novo dataset Representative</h2><form id='dataset-form'><label><span class='with-help'>Nome do dataset<span class='help' tabindex='0' data-help='Nome amigável e único para identificar o conjunto físico no Fujin. O nome não altera os arquivos nem será usado como caminho no disco.'>i</span></span><input name='name' placeholder='arquivos-representative-10tb' required></label><label><span class='with-help'>Origem dos arquivos<span class='help' tabindex='0' data-help='Selecione um pacote físico disponível no repositório do Fujin. Pacotes já registrados por outro dataset não aparecem nesta lista.'>i</span></span><select id='dataset-package-select' name='repository_relative_path' required><option value=''>Carregando pacotes disponíveis…</option></select></label><div id='dataset-package-summary' class='fujin-connection-field'><small>Resumo detectado</small><b>Selecione um pacote físico.</b></div><label class='fujin-checkbox-row'><input type='checkbox' checked disabled> <span><b>Validar automaticamente após criar</b><br><small>O Fujin calculará manifesto, snapshot SHA-256, quantidade de objetos e volume total.</small></span></label><button>Criar e validar dataset</button></form></section>
-<section class='card'><h2>Operações AWS</h2><div class='fujin-filter-actions'><button id='aws-provider-toggle'>Carregando estado…</button><button id='aws-cancel-active' class='warn'>Encerrar restores AWS ativos</button></div><div class='fujin-action-notes'><p class='note'><b>Ativar/desativar endpoints:</b> controla exclusivamente as APIs privadas AWS S3, S3 Control e STS.</p><p class='note'><b>Encerrar restores:</b> cancela somente restores temporários AWS em andamento. Buckets e datasets são preservados.</p></div></section><section class='card'><h2>Novo bucket S3 LOCAL</h2><form id='s3-form'><label><span class='with-help'>Nome DNS do bucket<span class='help' tabindex='0' data-help='Nome único usado pelo endpoint S3 privado. Use letras minúsculas, números, pontos e hífens; o nome deve ter entre 3 e 63 caracteres.'>i</span></span><input name='name' placeholder='exemplo-arquivo-local' required></label><label><span class='with-help'>Dataset<span class='help' tabindex='0' data-help='Selecione o conjunto físico de objetos que este bucket publicará. Somente datasets Representative validados e em estado READY ficam disponíveis.'>i</span></span><select id='s3-dataset-select' name='dataset_id' required><option value=''>Carregando datasets READY…</option></select></label><label><span class='with-help'>Multiplicador lógico<span class='help' tabindex='0' data-help='Quantidade de vezes que o dataset físico será projetado no bucket com chaves independentes. Exemplo: um dataset de 10 TB com multiplicador 10 cria um bucket lógico de 100 TB sem duplicar os arquivos no disco.'>i</span></span><input id='s3-logical-multiplier' name='logical_multiplier' type='number' min='1' max='1000' step='1' value='1' required></label><div id='s3-logical-summary' class='fujin-connection-field'><small>Projeção lógica</small><b>Selecione um dataset READY.</b></div><label><span class='with-help'>Classe de armazenamento S3<span class='help' tabindex='0' data-help='Define como todos os objetos deste bucket serão apresentados pela API S3. Classes Glacier e Deep Archive exigem restore antes da leitura; o dataset físico não é alterado.'>i</span></span><select name='storage_class'><option value='DEEP_ARCHIVE'>S3 Glacier Deep Archive</option><option value='GLACIER'>S3 Glacier Flexible Retrieval</option><option value='GLACIER_IR'>S3 Glacier Instant Retrieval</option><option value='INTELLIGENT_TIERING'>S3 Intelligent-Tiering</option><option value='STANDARD_IA'>S3 Standard-IA</option><option value='ONEZONE_IA'>S3 One Zone-IA</option><option value='STANDARD'>S3 Standard</option></select></label><label><span class='with-help'>Região privada<span class='help' tabindex='0' data-help='Região publicada pelos endpoints privados do Fujin e retornada ao SDK AWS. Nesta instalação ela é fixa em us-east-1.'>i</span></span><input name='region' value='us-east-1' readonly></label><fieldset class='operational-fieldset'><legend><span class='with-help'>Política de restore<span class='help' tabindex='0' data-help='Controla a simulação do ciclo de restore para objetos GLACIER ou DEEP_ARCHIVE. Não altera o conteúdo do dataset e não é usada por classes de leitura imediata.'>i</span></span></legend><label><span class='with-help'>Tempo até ficar disponível<span class='help' tabindex='0' data-help='Quantidade de segundos entre a solicitação aceita e o objeto ficar disponível para leitura. Use 0 para disponibilização imediata.'>i</span></span><input name='restore_delay_seconds' type='number' min='0' value='0' required></label><label><span class='with-help'>Retenção restaurada<span class='help' tabindex='0' data-help='Quantidade de dias durante os quais a cópia temporariamente restaurada permanecerá disponível antes de expirar.'>i</span></span><input name='restore_availability_days' type='number' min='1' value='1' required></label><label><span class='with-help'>Restores simultâneos<span class='help' tabindex='0' data-help='Limite de restores ativos neste bucket. Use 0 para não aplicar limite de concorrência.'>i</span></span><input name='restore_max_concurrent' type='number' min='0' value='0' required></label><label><span class='with-help'>Falhas transitórias iniciais<span class='help' tabindex='0' data-help='Número de tentativas que o Fujin recusará com erro temporário antes de aceitar o restore. Use 0 para o fluxo normal sem falha injetada.'>i</span></span><input name='restore_transient_failures' type='number' min='0' value='0' required></label></fieldset><button>Criar bucket S3</button></form></section><section class='card'><h2>Operações OCI</h2><div class='fujin-filter-actions'><button id='oci-provider-toggle'>Carregando estado…</button><button id='oci-cancel-active' class='warn'>Encerrar uploads OCI ativos</button></div><div class='fujin-action-notes'><p class='note'><b>Ativar/desativar endpoints:</b> controla exclusivamente as APIs privadas do OCI Object Storage.</p><p class='note'><b>Encerrar uploads:</b> cancela somente uploads multipart OCI incompletos e descarta seu staging. Buckets e objetos concluídos são preservados.</p></div></section><section class='card'><h2>Novo bucket OCI LOCAL</h2><form id='oci-form'><label><span class='with-help'>Nome do bucket<span class='help' tabindex='0' data-help='Informe somente o nome do bucket de destino. Ele identifica onde um cliente gravará os objetos transferidos; não inclua endpoint, namespace ou protocolo.'>i</span></span><input name='name' placeholder='fujin-destination-10tb' required></label><label><span class='with-help'>Namespace<span class='help' tabindex='0' data-help='Namespace do Object Storage LOCAL, equivalente ao namespace da tenancy OCI. Nesta instalação ele é fixo e será incluído automaticamente na configuração de conexão.'>i</span></span><input name='namespace' value='local' readonly required></label><label><span class='with-help'>Região privada<span class='help' tabindex='0' data-help='Região OCI publicada pelo endpoint privado do Fujin. Nesta instalação ela é fixa em sa-saopaulo-1 e não precisa ser informada ao criar o bucket.'>i</span></span><input id='oci-private-region' value='sa-saopaulo-1' readonly></label><button>Criar bucket OCI</button></form></section></div>
+<section class='card'><h2>Operações AWS</h2><div class='fujin-filter-actions'><button id='aws-provider-toggle'>Carregando estado…</button><button id='aws-cancel-active' class='warn'>Encerrar restores AWS ativos</button></div><div class='fujin-action-notes'><p class='note'><b>Ativar/desativar endpoints:</b> controla exclusivamente as APIs privadas AWS S3, S3 Control e STS.</p><p class='note'><b>Encerrar restores:</b> cancela somente restores temporários AWS em andamento. Buckets e datasets são preservados.</p></div></section><section class='card'><h2>Novo bucket S3 Provider</h2><form id='s3-form'><label><span class='with-help'>Nome DNS do bucket<span class='help' tabindex='0' data-help='Nome único usado pelo endpoint S3 privado. Use letras minúsculas, números, pontos e hífens; o nome deve ter entre 3 e 63 caracteres.'>i</span></span><input name='name' placeholder='exemplo-arquivo-local' required></label><label><span class='with-help'>Dataset<span class='help' tabindex='0' data-help='Selecione o conjunto físico de objetos que este bucket publicará. Somente datasets Representative validados e em estado READY ficam disponíveis.'>i</span></span><select id='s3-dataset-select' name='dataset_id' required><option value=''>Carregando datasets READY…</option></select></label><label><span class='with-help'>Multiplicador lógico<span class='help' tabindex='0' data-help='Quantidade de vezes que o dataset físico será projetado no bucket com chaves independentes. Exemplo: um dataset de 10 TB com multiplicador 10 cria um bucket lógico de 100 TB sem duplicar os arquivos no disco.'>i</span></span><input id='s3-logical-multiplier' name='logical_multiplier' type='number' min='1' max='1000' step='1' value='1' required></label><div id='s3-logical-summary' class='fujin-connection-field'><small>Projeção lógica</small><b>Selecione um dataset READY.</b></div><label><span class='with-help'>Classe de armazenamento S3<span class='help' tabindex='0' data-help='Define como todos os objetos deste bucket serão apresentados pela API S3. Classes Glacier e Deep Archive exigem restore antes da leitura; o dataset físico não é alterado.'>i</span></span><select name='storage_class'><option value='DEEP_ARCHIVE'>S3 Glacier Deep Archive</option><option value='GLACIER'>S3 Glacier Flexible Retrieval</option><option value='GLACIER_IR'>S3 Glacier Instant Retrieval</option><option value='INTELLIGENT_TIERING'>S3 Intelligent-Tiering</option><option value='STANDARD_IA'>S3 Standard-IA</option><option value='ONEZONE_IA'>S3 One Zone-IA</option><option value='STANDARD'>S3 Standard</option></select></label><label><span class='with-help'>Região privada<span class='help' tabindex='0' data-help='Região publicada pelos endpoints privados do Fujin e retornada ao SDK AWS. Nesta instalação ela é fixa em us-east-1.'>i</span></span><input name='region' value='us-east-1' readonly></label><fieldset class='operational-fieldset'><legend><span class='with-help'>Política de restore<span class='help' tabindex='0' data-help='Controla a simulação do ciclo de restore para objetos GLACIER ou DEEP_ARCHIVE. Não altera o conteúdo do dataset e não é usada por classes de leitura imediata.'>i</span></span></legend><label><span class='with-help'>Tempo até ficar disponível<span class='help' tabindex='0' data-help='Quantidade de segundos entre a solicitação aceita e o objeto ficar disponível para leitura. Use 0 para disponibilização imediata.'>i</span></span><input name='restore_delay_seconds' type='number' min='0' value='0' required></label><label><span class='with-help'>Retenção restaurada<span class='help' tabindex='0' data-help='Quantidade de dias durante os quais a cópia temporariamente restaurada permanecerá disponível antes de expirar.'>i</span></span><input name='restore_availability_days' type='number' min='1' value='1' required></label><label><span class='with-help'>Restores simultâneos<span class='help' tabindex='0' data-help='Limite de restores ativos neste bucket. Use 0 para não aplicar limite de concorrência.'>i</span></span><input name='restore_max_concurrent' type='number' min='0' value='0' required></label><label><span class='with-help'>Falhas transitórias iniciais<span class='help' tabindex='0' data-help='Número de tentativas que o Fujin recusará com erro temporário antes de aceitar o restore. Use 0 para o fluxo normal sem falha injetada.'>i</span></span><input name='restore_transient_failures' type='number' min='0' value='0' required></label></fieldset><button>Criar bucket S3</button></form></section><section class='card'><h2>Operações OCI</h2><div class='fujin-filter-actions'><button id='oci-provider-toggle'>Carregando estado…</button><button id='oci-cancel-active' class='warn'>Encerrar uploads OCI ativos</button></div><div class='fujin-action-notes'><p class='note'><b>Ativar/desativar endpoints:</b> controla exclusivamente as APIs privadas do OCI Object Storage.</p><p class='note'><b>Encerrar uploads:</b> cancela somente uploads multipart OCI incompletos e descarta seu staging. Buckets e objetos concluídos são preservados.</p></div></section><section class='card'><h2>Novo bucket OCI Provider</h2><form id='oci-form'><label><span class='with-help'>Nome do bucket<span class='help' tabindex='0' data-help='Informe somente o nome do bucket de destino. Ele identifica onde um cliente gravará os objetos transferidos; não inclua endpoint, namespace ou protocolo.'>i</span></span><input name='name' placeholder='fujin-destination-10tb' required></label><label><span class='with-help'>Namespace<span class='help' tabindex='0' data-help='Namespace do Object Storage LOCAL, equivalente ao namespace da tenancy OCI. Nesta instalação ele é fixo e será incluído automaticamente na configuração de conexão.'>i</span></span><input name='namespace' value='local' readonly required></label><label><span class='with-help'>Região privada<span class='help' tabindex='0' data-help='Região OCI publicada pelo endpoint privado do Fujin. Nesta instalação ela é fixa em sa-saopaulo-1 e não precisa ser informada ao criar o bucket.'>i</span></span><input id='oci-private-region' value='sa-saopaulo-1' readonly></label><button>Criar bucket OCI</button></form></section></div>
 <div class='grid'><section class='card'><h2>Datasets</h2><p class='note'>Datasets Representative apontam para payloads físicos imutáveis e só ficam disponíveis para buckets após validação integral.</p><div id='dataset-message' class='fujin-inline-message' role='status'></div><div id='datasets'>carregando…</div></section><section class='card'><h2>Buckets S3</h2><p class='note'>O bucket de controle é um recurso auxiliar usado pelos manifestos e relatórios do S3 Batch Operations; ele não contém o dataset.</p><div id='s3-message' class='fujin-inline-message' role='status'></div><div id='s3'>carregando…</div></section><section class='card'><h2>Buckets OCI referenciais</h2><p class='note'>O bucket OCI recebe referências aos payloads físicos validados; sua exclusão remove as referências, nunca o dataset imutável.</p><div id='oci-message' class='fujin-inline-message' role='status'></div><div id='oci'>carregando…</div></section><section class='card'><h2>Auditoria e operações</h2><p class='note'>Histórico rastreável das chamadas e ações administrativas do Fujin. Nenhum evento é carregado automaticamente: informe ao menos um filtro e clique em <b>Pesquisar</b>. Os resultados usam 10 registros por página.</p><form id='audit-search' class='fujin-filter-grid'><input name='request_id' placeholder='Request ID'><select name='bucket' id='audit-bucket'><option value=''>Todos os buckets</option></select><input name='object_key' placeholder='Chave do objeto'><input name='since' type='datetime-local'><input name='until' type='datetime-local'><div class='fujin-filter-actions'><button>Pesquisar</button><button type='button' class='secondary' id='audit-reset'>Limpar</button></div></form><div id='audit'><div class='fujin-empty'>Use os filtros acima para consultar a auditoria.</div></div><div id='audit-pagination' class='fujin-pagination'></div></section></div>
 <script>
 const base=location.pathname.startsWith('/fujin/')?'/fujin':'';
@@ -1360,7 +1360,7 @@ async function loadAuditBuckets(){const response=await fetch(base+'/api/local/au
 function renderAuditDetails(row){if(!row)return;selectUrlItem('audit',row.request_id);document.getElementById('audit-details-modal-title').textContent=`Auditoria — ${row.operation}`;const field=(label,value)=>`<div class="fujin-connection-field"><small>${label}</small><b>${html(value??'—')}</b></div>`;document.getElementById('audit-details-modal-content').innerHTML=`<section class="fujin-connection-panel"><div class="fujin-connection-grid">${field('Data',localDate(row.created_at))}${field('Resultado HTTP',row.status_code)}${field('Request ID',row.request_id)}${field('Operação',row.operation)}${field('Bucket',row.bucket)}${field('Chave do objeto',row.object_key)}${field('Endpoint',row.endpoint)}${field('Latência',row.latency_ms==null?'—':row.latency_ms+' ms')}${field('Bytes transferidos',row.bytes_transferred==null?'—':localBytes(row.bytes_transferred))}${field('Tentativas',row.retry_count)}${field('Identidade chamadora',row.caller_identity)}${field('Código de erro',row.error_code)}</div><div class="fujin-connection-field"><small>Descrição</small><b>${html(row.detail||'Sem informação adicional.')}</b></div></section>`;openFujinModal('audit-details-modal')}
 function datasetMessage(message,error=false){const target=document.getElementById('dataset-message');target.textContent=message||'';target.classList.toggle('error',error)}
 const datasetForm=document.getElementById('dataset-form');
-datasetForm.innerHTML=`<label><span class="with-help">Nome do dataset<span class="help" tabindex="0" data-help="Nome amigável e único. O Fujin cria e administra o conteúdo físico; nenhum caminho do host é aceito ou exibido.">i</span></span><input name="name" placeholder="arquivos-representative-10tb" required></label><label><span class="with-help">Seed<span class="help" tabindex="0" data-help="Valor estável usado pelo Fujin para gerar bytes determinísticos de alta entropia. O seed não é um caminho nem uma referência externa.">i</span></span><input name="seed" value="fujin-local-dataset-001" required></label><label><span class="with-help">Objetos<span class="help" tabindex="0" data-help="Quantidade de arquivos reais que o Fujin criará no volume LOCAL gerenciado.">i</span></span><input name="file_count" type="number" min="1" max="100000" step="1" value="10" required></label><label><span class="with-help">Tamanho por objeto (MiB)<span class="help" tabindex="0" data-help="Tamanho de cada arquivo físico real criado pelo Fujin LOCAL.">i</span></span><input name="file_size_mib" type="number" min="1" max="102400" step="1" value="100" required></label><label><span class="with-help">Quota (GiB)<span class="help" tabindex="0" data-help="Limite declarado para o dataset. Deve cobrir todo o perfil solicitado.">i</span></span><input name="quota_gib" type="number" min="1" step="1" value="10" required></label><div class="fujin-connection-field"><small>Criação controlada</small><b>O worker LOCAL grava, versiona e valida o dataset; o provedor só o lê após READY.</b></div><button>Criar dataset LOCAL</button>`;
+datasetForm.innerHTML=`<label><span class="with-help">Nome do dataset<span class="help" tabindex="0" data-help="Nome amigável e único. O Fujin cria e administra o conteúdo físico; nenhum caminho do host é aceito ou exibido.">i</span></span><input name="name" placeholder="arquivos-representative-10tb" required></label><label><span class="with-help">Seed<span class="help" tabindex="0" data-help="Valor estável usado pelo Fujin para gerar bytes determinísticos de alta entropia. O seed não é um caminho nem uma referência externa.">i</span></span><input name="seed" value="fujin-provider-dataset-001" required></label><label><span class="with-help">Objetos<span class="help" tabindex="0" data-help="Quantidade de arquivos reais que o Fujin criará no volume LOCAL gerenciado.">i</span></span><input name="file_count" type="number" min="1" max="100000" step="1" value="10" required></label><label><span class="with-help">Tamanho por objeto (MiB)<span class="help" tabindex="0" data-help="Tamanho de cada arquivo físico real criado pelo Fujin Provider.">i</span></span><input name="file_size_mib" type="number" min="1" max="102400" step="1" value="100" required></label><label><span class="with-help">Quota (GiB)<span class="help" tabindex="0" data-help="Limite declarado para o dataset. Deve cobrir todo o perfil solicitado.">i</span></span><input name="quota_gib" type="number" min="1" step="1" value="10" required></label><div class="fujin-connection-field"><small>Criação controlada</small><b>O worker LOCAL grava, versiona e valida o dataset; o provedor só o lê após READY.</b></div><button>Criar dataset LOCAL</button>`;
 let s3ReadyDatasets=[];
 function renderS3LogicalSummary(){const dataset=s3ReadyDatasets.find(item=>item.id===document.getElementById('s3-dataset-select')?.value),multiplier=Math.max(1,Number(document.getElementById('s3-logical-multiplier')?.value||1)),target=document.getElementById('s3-logical-summary');if(!target)return;target.innerHTML=dataset?`<small>Projeção lógica do bucket</small><b>${html(multiplier)}× · ${html(new Intl.NumberFormat('pt-BR').format(Number(dataset.validated_objects||0)*multiplier))} objeto(s) · ${html(localBytes(Number(dataset.validated_bytes||0)*multiplier))}</b><span>Dados físicos preservados: ${html(localBytes(dataset.validated_bytes))} · ${html(dataset.validated_objects)} objeto(s)</span>`:'<small>Projeção lógica</small><b>Selecione um dataset READY.</b>'}
 function syncS3DatasetOptions(datasets){const select=document.getElementById('s3-dataset-select');if(!select)return;const selected=select.value;s3ReadyDatasets=(Array.isArray(datasets)?datasets:[]).filter(dataset=>dataset.state==='READY'&&dataset.model==='REPRESENTATIVE');select.innerHTML=`<option value="">Selecione um dataset READY</option>${s3ReadyDatasets.map(dataset=>`<option value="${html(dataset.id)}">${html(dataset.name)} · ${html(localBytes(dataset.validated_bytes))} · ${html(dataset.validated_objects)} objeto(s)</option>`).join('')}`;if(s3ReadyDatasets.some(dataset=>dataset.id===selected))select.value=selected;select.disabled=!s3ReadyDatasets.length;renderS3LogicalSummary()}
@@ -1476,7 +1476,7 @@ refresh().then(restoreUrlSelection).catch(error=>alert(error));
 </main><div id='audit-details-modal' class='fujin-modal hidden' role='dialog' aria-modal='true' aria-labelledby='audit-details-modal-title' onclick="if(event.target===this)closeFujinModal('audit-details-modal')"><section class='fujin-modal-panel'><header class='fujin-modal-header'><h2 id='audit-details-modal-title'>Auditoria</h2><button type='button' class='secondary fujin-modal-close' onclick="closeFujinModal('audit-details-modal')">Fechar</button></header><div id='audit-details-modal-content'></div></section></div><div id='dataset-details-modal' class='fujin-modal hidden' role='dialog' aria-modal='true' aria-labelledby='dataset-details-modal-title' onclick="if(event.target===this)closeFujinModal('dataset-details-modal')"><section class='fujin-modal-panel'><header class='fujin-modal-header'><h2 id='dataset-details-modal-title'>Dataset</h2><button type='button' class='secondary fujin-modal-close' onclick="closeFujinModal('dataset-details-modal')">Fechar</button></header><div id='dataset-details-modal-content'></div></section></div><div id='s3-connection-modal' class='fujin-modal hidden' role='dialog' aria-modal='true' aria-labelledby='s3-connection-modal-title' onclick="if(event.target===this)closeFujinModal('s3-connection-modal')"><section class='fujin-modal-panel'><header class='fujin-modal-header'><h2 id='s3-connection-modal-title'>Conexão AWS</h2><button type='button' class='secondary fujin-modal-close' onclick="closeFujinModal('s3-connection-modal')">Fechar</button></header><div id='s3-connection-modal-content'></div></section></div><div id='oci-connection-modal' class='fujin-modal hidden' role='dialog' aria-modal='true' aria-labelledby='oci-connection-modal-title' onclick="if(event.target===this)closeFujinModal('oci-connection-modal')"><section class='fujin-modal-panel'><header class='fujin-modal-header'><h2 id='oci-connection-modal-title'>Conexão OCI</h2><button type='button' class='secondary fujin-modal-close' onclick="closeFujinModal('oci-connection-modal')">Fechar</button></header><div id='oci-connection-modal-content'></div></section></div><footer class='operational-statusbar' aria-label='Status operacional Fujin'><div class='operational-statusbar-inner'><div id='fujin-ticker' class='statusbar-ticker idle' role='status'><span id='fujin-ticker-text'>FUJIN LOCAL · administração protegida pelo túnel SSH local.</span></div></div></footer><script>
 /* The controls below keep their original IDs/listeners; this layer only gives
    the LOCAL console the same operational navigation language as Raijin. */
-(()=>{const main=document.getElementById('fujin-main'),clock=document.getElementById('fujin-clock'),ticker=document.getElementById('fujin-ticker'),tickerText=document.getElementById('fujin-ticker-text');const cards=[...main.querySelectorAll('.card')];const titles={status:['Status','Visão consolidada e somente leitura de Fujin, AWS privada e OCI privada.'],datasets:['Dataset','Criação, validação e inventário dos datasets Representative.'],aws:['AWS','Buckets S3 privados, credenciais sintéticas e operações AWS.'],oci:['OCI','Buckets Object Storage privados, objetos referenciais e operações OCI.'],settings:['Configurações gerais','Configuração e ciclo de vida controlado.']};const destination={'Estado e endpoints':'status','Novo dataset Representative':'datasets','Operações AWS':'aws','Novo bucket S3 LOCAL':'aws','Operações OCI':'oci','Novo bucket OCI LOCAL':'oci','Datasets':'datasets','Buckets S3':'aws','Buckets OCI referenciais':'oci','Auditoria e operações':'status'};const views={};for(const [key,[title,description]] of Object.entries(titles)){const view=document.createElement('section');view.className='fujin-view'+(key==='status'?' active':'');view.dataset.fujinView=key;view.innerHTML=`<div class="fujin-view-kicker">Fujin LOCAL</div><h1 class="fujin-view-title">${title}</h1><p class="note">${description}</p>`;if(key==='status'){const metrics=document.createElement('div');metrics.id='fujin-status-metrics';metrics.className='fujin-status-grid fujin-compact-metrics';view.append(metrics)}const grid=document.createElement('div');grid.className='grid';view.append(grid);views[key]={view,grid}}for(const card of cards){const name=card.querySelector('h2')?.textContent.trim();const key=destination[name]||'settings';views[key].grid.append(card)}main.replaceChildren(...Object.values(views).map(item=>item.view));const shell=window.OperationalShell;const initialView=['status','datasets','aws','oci','settings'].includes(initialUrlState.get('view'))?initialUrlState.get('view'):'status';const navigator=shell?.createNavigator({buttons:document.querySelectorAll('[data-fujin-view]'),views:Object.values(views).map(item=>item.view),onChange:name=>{updateUrlState({view:name});window.scrollTo({top:0,left:0,behavior:'auto'});requestAnimationFrame(compactAllMetricGroups)}});shell?.stabilizePointerClicks();shell?.enhanceCards();shell?.enableHelpTooltips();window.addEventListener('resize',compactAllMetricGroups,{passive:true});navigator?.show(initialView);if(!navigator)document.querySelectorAll('[data-fujin-view]').forEach(button=>button.addEventListener('click',()=>{for(const [name,item]of Object.entries(views))item.view.classList.toggle('active',name===button.dataset.fujinView)}));shell?.startClock(clock,{withDate:true});const adminHeaders=()=>({});const helps={'Fujin':'Indica se a interface administrativa e a API local estão disponíveis.','Endpoints AWS':'Indica se os endpoints privados compatíveis com AWS estão aceitando requisições.','Endpoints OCI':'Indica se os endpoints privados compatíveis com OCI estão aceitando requisições.','AWS S3 Bucket(s)':'Quantidade de buckets S3 locais cadastrados.','OCI Object Storage Bucket(s)':'Quantidade de buckets OCI locais cadastrados.','Datasets':'Quantidade de datasets físicos cadastrados.','Operações em curso':'Quantidade total de restores AWS e uploads OCI em andamento.'};const metric=(label,value,tone='')=>`<div class="fujin-metric ${tone}" data-card-help="${html(helps[label]||`Mostra o valor atual de ${label}.`)}"><small>${label}</small><b>${value}</b></div>`;const announce=(message,idle=false)=>{if(shell)shell.renderTicker(ticker,message,{idle});else tickerText.textContent=message};async function refreshChrome(){try{const [overviewResponse,auditResponse]=await Promise.all([fetch(base+'/api/local/overview',{headers:adminHeaders()}),fetch(base+'/api/local/audit?limit=30',{headers:adminHeaders()})]);if(!overviewResponse.ok)throw new Error('Não foi possível consultar o estado do Fujin.');const overview=await overviewResponse.json(),audit=auditResponse.ok?await auditResponse.json():[];const metrics=metric('Fujin','ONLINE','good')+metric('Endpoints AWS',overview.aws_data_plane_enabled?'ATIVOS':'INATIVOS',overview.aws_data_plane_enabled?'good':'warn')+metric('Endpoints OCI',overview.oci_data_plane_enabled?'ATIVOS':'INATIVOS',overview.oci_data_plane_enabled?'good':'warn')+metric('AWS S3 Bucket(s)',overview.s3_buckets)+metric('OCI Object Storage Bucket(s)',overview.oci_buckets)+metric('Datasets',overview.datasets)+metric('Operações em curso',(overview.active_restores+overview.multipart_uploads)),metricsTarget=document.getElementById('fujin-status-metrics');if(metricsTarget.innerHTML!==metrics)metricsTarget.innerHTML=metrics;compactMetricGroup(metricsTarget);const failures=(Array.isArray(audit)?audit:[]).filter(item=>Number(item.status_code)>=400);announce(failures.length?`ATENÇÃO · ${failures.length} erro(s) recente(s) no Fujin LOCAL · ${failures.slice(0,3).map(item=>item.operation+(item.detail?' — '+item.detail:'')).join(' · ')}`:`FUJIN LOCAL · endpoints ${overview.data_plane_enabled?'privados ativos':'privados inativos'} · AWS S3 ${overview.s3_buckets} · OCI ${overview.oci_buckets} · datasets ${overview.datasets}`,false)}catch(error){document.getElementById('fujin-status-metrics').innerHTML=metric('Fujin','INDISPONÍVEL','bad');announce('FUJIN LOCAL · '+error.message,true)}}refreshChrome();setInterval(refreshChrome,20000)})();
+(()=>{const main=document.getElementById('fujin-main'),clock=document.getElementById('fujin-clock'),ticker=document.getElementById('fujin-ticker'),tickerText=document.getElementById('fujin-ticker-text');const cards=[...main.querySelectorAll('.card')];const titles={status:['Status','Visão consolidada e somente leitura de Fujin, AWS privada e OCI privada.'],datasets:['Dataset','Criação, validação e inventário dos datasets Representative.'],aws:['AWS','Buckets S3 privados, credenciais sintéticas e operações AWS.'],oci:['OCI','Buckets Object Storage privados, objetos referenciais e operações OCI.'],settings:['Configurações gerais','Configuração e ciclo de vida controlado.']};const destination={'Estado e endpoints':'status','Novo dataset Representative':'datasets','Operações AWS':'aws','Novo bucket S3 Provider':'aws','Operações OCI':'oci','Novo bucket OCI Provider':'oci','Datasets':'datasets','Buckets S3':'aws','Buckets OCI referenciais':'oci','Auditoria e operações':'status'};const views={};for(const [key,[title,description]] of Object.entries(titles)){const view=document.createElement('section');view.className='fujin-view'+(key==='status'?' active':'');view.dataset.fujinView=key;view.innerHTML=`<div class="fujin-view-kicker">Fujin Provider</div><h1 class="fujin-view-title">${title}</h1><p class="note">${description}</p>`;if(key==='status'){const metrics=document.createElement('div');metrics.id='fujin-status-metrics';metrics.className='fujin-status-grid fujin-compact-metrics';view.append(metrics)}const grid=document.createElement('div');grid.className='grid';view.append(grid);views[key]={view,grid}}for(const card of cards){const name=card.querySelector('h2')?.textContent.trim();const key=destination[name]||'settings';views[key].grid.append(card)}main.replaceChildren(...Object.values(views).map(item=>item.view));const shell=window.OperationalShell;const initialView=['status','datasets','aws','oci','settings'].includes(initialUrlState.get('view'))?initialUrlState.get('view'):'status';const navigator=shell?.createNavigator({buttons:document.querySelectorAll('[data-fujin-view]'),views:Object.values(views).map(item=>item.view),onChange:name=>{updateUrlState({view:name});window.scrollTo({top:0,left:0,behavior:'auto'});requestAnimationFrame(compactAllMetricGroups)}});shell?.stabilizePointerClicks();shell?.enhanceCards();shell?.enableHelpTooltips();window.addEventListener('resize',compactAllMetricGroups,{passive:true});navigator?.show(initialView);if(!navigator)document.querySelectorAll('[data-fujin-view]').forEach(button=>button.addEventListener('click',()=>{for(const [name,item]of Object.entries(views))item.view.classList.toggle('active',name===button.dataset.fujinView)}));shell?.startClock(clock,{withDate:true});const adminHeaders=()=>({});const helps={'Fujin':'Indica se a interface administrativa e a API local estão disponíveis.','Endpoints AWS':'Indica se os endpoints privados compatíveis com AWS estão aceitando requisições.','Endpoints OCI':'Indica se os endpoints privados compatíveis com OCI estão aceitando requisições.','AWS S3 Bucket(s)':'Quantidade de buckets S3 locais cadastrados.','OCI Object Storage Bucket(s)':'Quantidade de buckets OCI locais cadastrados.','Datasets':'Quantidade de datasets físicos cadastrados.','Operações em curso':'Quantidade total de restores AWS e uploads OCI em andamento.'};const metric=(label,value,tone='')=>`<div class="fujin-metric ${tone}" data-card-help="${html(helps[label]||`Mostra o valor atual de ${label}.`)}"><small>${label}</small><b>${value}</b></div>`;const announce=(message,idle=false)=>{if(shell)shell.renderTicker(ticker,message,{idle});else tickerText.textContent=message};async function refreshChrome(){try{const [overviewResponse,auditResponse]=await Promise.all([fetch(base+'/api/local/overview',{headers:adminHeaders()}),fetch(base+'/api/local/audit?limit=30',{headers:adminHeaders()})]);if(!overviewResponse.ok)throw new Error('Não foi possível consultar o estado do Fujin.');const overview=await overviewResponse.json(),audit=auditResponse.ok?await auditResponse.json():[];const metrics=metric('Fujin','ONLINE','good')+metric('Endpoints AWS',overview.aws_data_plane_enabled?'ATIVOS':'INATIVOS',overview.aws_data_plane_enabled?'good':'warn')+metric('Endpoints OCI',overview.oci_data_plane_enabled?'ATIVOS':'INATIVOS',overview.oci_data_plane_enabled?'good':'warn')+metric('AWS S3 Bucket(s)',overview.s3_buckets)+metric('OCI Object Storage Bucket(s)',overview.oci_buckets)+metric('Datasets',overview.datasets)+metric('Operações em curso',(overview.active_restores+overview.multipart_uploads)),metricsTarget=document.getElementById('fujin-status-metrics');if(metricsTarget.innerHTML!==metrics)metricsTarget.innerHTML=metrics;compactMetricGroup(metricsTarget);const failures=(Array.isArray(audit)?audit:[]).filter(item=>Number(item.status_code)>=400);announce(failures.length?`ATENÇÃO · ${failures.length} erro(s) recente(s) no Fujin Provider · ${failures.slice(0,3).map(item=>item.operation+(item.detail?' — '+item.detail:'')).join(' · ')}`:`FUJIN LOCAL · endpoints ${overview.data_plane_enabled?'privados ativos':'privados inativos'} · AWS S3 ${overview.s3_buckets} · OCI ${overview.oci_buckets} · datasets ${overview.datasets}`,false)}catch(error){document.getElementById('fujin-status-metrics').innerHTML=metric('Fujin','INDISPONÍVEL','bad');announce('FUJIN LOCAL · '+error.message,true)}}refreshChrome();setInterval(refreshChrome,20000)})();
 </script><script>const localBase=location.pathname.startsWith('/fujin/')?'/fujin':'';const localHeaders=()=>{const t=sessionStorage.fujinAdminToken||'';return t?{'x-fujin-admin-token':t}:{}};const auditForm=document.getElementById('audit-search');for(const name of auditFilterNames){const value=initialUrlState.get(name),input=auditForm.elements[name];if(!value||!input)continue;if(name==='since'||name==='until'){const date=new Date(value);date.setMinutes(date.getMinutes()-date.getTimezoneOffset());input.value=date.toISOString().slice(0,16)}else input.value=value}function syncAuditUrl(query){const values={audit_page:1};for(const name of auditFilterNames)values[name]=query.get(name)||'';updateUrlState(values,auditFilterNames)}for(const provider of ['AWS','OCI'])document.getElementById(provider.toLowerCase()+'-cancel-active').onclick=async()=>{const operation=provider==='AWS'?'restores AWS temporários':'uploads multipart OCI incompletos';if(!confirm('Encerrar '+operation+'?'))return;const r=await fetch(localBase+'/api/local/providers/'+provider.toLowerCase()+'/operations/cancel-active',{method:'POST',headers:localHeaders()});if(!r.ok){alert(await r.text());return}await refresh()};auditForm.onsubmit=async e=>{e.preventDefault();const q=new URLSearchParams();for(const [k,v] of new FormData(e.target))if(v)q.set(k,k==='since'||k==='until'?new Date(v).toISOString():v);auditQuery=q.toString();syncAuditUrl(q);await loadAuditPage(0)};document.getElementById('audit-reset').onclick=async()=>{auditForm.reset();auditQuery='';updateUrlState({audit_page:1},auditFilterNames);await loadAuditPage(0)};</script></body></html>"""
 
 
@@ -1597,17 +1597,17 @@ def index_and_validate_physical_package(dataset_id: str) -> None:
 @app.get("/api/local/dataset-packages")
 def list_dataset_packages(request: Request, session: Session = Depends(get_session)) -> list[dict]:
     require_admin(request)
-    raise HTTPException(410, "External physical packages are disabled; create the dataset through Fujin LOCAL")
+    raise HTTPException(410, "External physical packages are disabled; create the dataset through Fujin Provider")
 
 
 @app.post("/api/local/datasets/from-package", status_code=202)
 def create_dataset_from_package(payload: DatasetPackageCreate, background_tasks: BackgroundTasks,
                                 request: Request, session: Session = Depends(get_session)) -> dict:
     require_admin(request)
-    raise HTTPException(410, "External physical packages are disabled; create the dataset through Fujin LOCAL")
+    raise HTTPException(410, "External physical packages are disabled; create the dataset through Fujin Provider")
 
     # Kept below temporarily as migration reference for existing catalogues.
-    # It is unreachable: new LOCAL datasets must be Fujin-owned generations.
+    # It is unreachable: new provider datasets must be Fujin-owned generations.
     name = payload.name.strip()
     if not name:
         raise HTTPException(422, "Dataset name is required")
@@ -1637,7 +1637,7 @@ def dataset_details(dataset_id: str, request: Request, session: Session = Depend
     require_admin(request)
     item = session.get(LocalDataset, dataset_id)
     if not item or item.deleted_at:
-        raise HTTPException(404, "LOCAL dataset not found")
+        raise HTTPException(404, "provider dataset not found")
     manifest = json.loads(item.manifest_json or "{}")
     manifest_objects = manifest.get("objects", []) if isinstance(manifest, dict) else []
     return {
@@ -1681,14 +1681,14 @@ def overview(request: Request, session: Session = Depends(get_session)) -> dict:
         # Raijin receives them through its normal generic connection/runtime
         # configuration and therefore has no knowledge of Fujin/LOCAL.
         "private_endpoint_profile": {
-            "region": AWS_LOCAL_REGION,
-            "aws_region": AWS_LOCAL_REGION,
-            "oci_region": OCI_LOCAL_REGION,
-            "sts_endpoint_url": f"https://sts.{AWS_LOCAL_REGION}.fujin.internal",
-            "s3_endpoint_pattern": f"https://<bucket>.vpce-fujin-local.s3.{AWS_LOCAL_REGION}.fujin.internal",
-            "s3control_endpoint_url": f"https://control.vpce-fujin-local.s3.{AWS_LOCAL_REGION}.fujin.internal",
-            "oci_object_storage_endpoint_url": f"https://oci.{OCI_LOCAL_REGION}.fujin.internal",
-            "tls_ca_bundle_path": LOCAL_CA_BUNDLE_PATH,
+            "region": AWS_PROVIDER_REGION,
+            "aws_region": AWS_PROVIDER_REGION,
+            "oci_region": OCI_PROVIDER_REGION,
+            "sts_endpoint_url": f"https://sts.{AWS_PROVIDER_REGION}.fujin.internal",
+            "s3_endpoint_pattern": f"https://<bucket>.vpce-fujin-provider.s3.{AWS_PROVIDER_REGION}.fujin.internal",
+            "s3control_endpoint_url": f"https://control.vpce-fujin-provider.s3.{AWS_PROVIDER_REGION}.fujin.internal",
+            "oci_object_storage_endpoint_url": f"https://oci.{OCI_PROVIDER_REGION}.fujin.internal",
+            "tls_ca_bundle_path": PROVIDER_CA_BUNDLE_PATH,
         },
     }
 
@@ -1925,7 +1925,7 @@ def create_dataset(request: Request, payload: DatasetCreate, session: Session = 
     raise HTTPException(410, "External payload paths are disabled; use /api/local/datasets/generate")
 
     # Kept below temporarily as migration reference for existing catalogues.
-    # It is unreachable: new LOCAL datasets must be Fujin-owned generations.
+    # It is unreachable: new provider datasets must be Fujin-owned generations.
     relative = payload.repository_relative_path.strip().strip("/")
     if not relative or ".." in relative.split("/") or relative.startswith("/"):
         raise HTTPException(422, "repository_relative_path must stay below the Fujin payload root")
@@ -1984,7 +1984,7 @@ def validate_dataset(dataset_id: str, request: Request, session: Session = Depen
     require_admin(request)
     dataset = session.get(LocalDataset, dataset_id)
     if not dataset or dataset.deleted_at:
-        raise HTTPException(404, "LOCAL dataset not found")
+        raise HTTPException(404, "provider dataset not found")
     if dataset.state == "GENERATING":
         raise HTTPException(409, "Dataset generation is still in progress")
     try:
@@ -2011,14 +2011,14 @@ def validate_dataset(dataset_id: str, request: Request, session: Session = Depen
 def create_s3_bucket(request: Request, payload: S3BucketCreate, session: Session = Depends(get_session)) -> dict:
     require_admin(request)
     name = require_bucket_name(payload.name)
-    if payload.region.strip() != LOCAL_REGION:
-        raise HTTPException(422, f"S3 LOCAL is configured for private region {LOCAL_REGION}")
+    if payload.region.strip() != PROVIDER_REGION:
+        raise HTTPException(422, f"S3 Provider is configured for private region {PROVIDER_REGION}")
     dataset = session.get(LocalDataset, payload.dataset_id)
     if not dataset or dataset.deleted_at or dataset.state != "READY" or dataset.model != "REPRESENTATIVE":
         raise HTTPException(422, "A READY REPRESENTATIVE dataset is required")
     existing = session.scalar(select(LocalS3Bucket).where(LocalS3Bucket.name == name))
     if existing and not existing.deleted_at:
-        raise HTTPException(409, "An S3 LOCAL bucket with this name already exists")
+        raise HTTPException(409, "An S3 Provider bucket with this name already exists")
     if existing:
         # Catalogues created before schema 16 kept the public name on a soft
         # deleted row. Rename that historical record transactionally so the
@@ -2032,12 +2032,12 @@ def create_s3_bucket(request: Request, payload: S3BucketCreate, session: Session
     account = f"{secrets.randbelow(10**12):012d}"
     access_key = "FJ" + secrets.token_hex(12).upper()
     storage_class = payload.storage_class.strip().upper()
-    bucket = LocalS3Bucket(name=name, dataset_id=dataset.id, region=LOCAL_REGION,
+    bucket = LocalS3Bucket(name=name, dataset_id=dataset.id, region=PROVIDER_REGION,
                            storage_class=storage_class, logical_multiplier=payload.logical_multiplier,
                            account_id=account,
                            control_bucket=f"fujin-control-{uuid.uuid4().hex[:16]}",
-                           migration_role_arn=f"arn:aws:iam::{account}:role/fujin-local-migration",
-                           batch_role_arn=f"arn:aws:iam::{account}:role/fujin-local-batch",
+                           migration_role_arn=f"arn:aws:iam::{account}:role/fujin-provider-migration",
+                           batch_role_arn=f"arn:aws:iam::{account}:role/fujin-provider-batch",
                            access_key_id=access_key, secret_access_key=secrets.token_urlsafe(32),
                            restore_policy_json=json.dumps(restore_policy, sort_keys=True))
     session.add(bucket)
@@ -2056,15 +2056,15 @@ def s3_connection(bucket_id: str, request: Request, session: Session = Depends(g
     require_admin(request)
     bucket = session.get(LocalS3Bucket, bucket_id)
     if not bucket or not bucket.active:
-        raise HTTPException(404, "Active S3 LOCAL bucket not found")
-    host = f"vpce-fujin-local.s3.{bucket.region}.fujin.internal"
+        raise HTTPException(404, "Active S3 Provider bucket not found")
+    host = f"vpce-fujin-provider.s3.{bucket.region}.fujin.internal"
     identifier = audit(session, "LOCAL_S3_CONNECTION_VIEWED", 200, bucket.name)
     session.commit()
     # The object is deliberately the same Secret schema accepted in REAL.
     endpoints = {"sts_endpoint_url": f"https://sts.{bucket.region}.fujin.internal",
                  "s3_endpoint_url": f"https://{host}",
                  "s3control_endpoint_url": f"https://control.{host}", "s3_addressing_style": "virtual",
-                 "tls_ca_bundle_path": LOCAL_CA_BUNDLE_PATH}
+                 "tls_ca_bundle_path": PROVIDER_CA_BUNDLE_PATH}
     dataset = session.get(LocalDataset, bucket.dataset_id)
     multiplier = logical_multiplier(bucket)
     physical_objects = int(dataset.validated_objects or 0) if dataset else 0
@@ -2074,7 +2074,7 @@ def s3_connection(bucket_id: str, request: Request, session: Session = Depends(g
                            "physical_objects": physical_objects, "physical_bytes": physical_bytes,
                            "logical_objects": physical_objects * multiplier,
                            "logical_bytes": physical_bytes * multiplier},
-            "secret": {"schema_version": 1, "connection_name": f"Fujin LOCAL - {bucket.name}",
+            "secret": {"schema_version": 1, "connection_name": f"Fujin Provider - {bucket.name}",
                        "aws_account_id": bucket.account_id, "default_region": bucket.region,
                        "bootstrap_access_key_id": bucket.access_key_id, "bootstrap_secret_access_key": bucket.secret_access_key,
                        "migration_role_arn": bucket.migration_role_arn, "batch_operations_role_arn": bucket.batch_role_arn,
@@ -2099,7 +2099,7 @@ def disable_s3_bucket(bucket_id: str, request: Request, session: Session = Depen
     require_admin(request)
     bucket = session.get(LocalS3Bucket, bucket_id)
     if not bucket or bucket.deleted_at:
-        raise HTTPException(404, "S3 LOCAL bucket not found")
+        raise HTTPException(404, "S3 Provider bucket not found")
     if not bucket.active:
         return {"id": bucket.id, "active": False, "changed": False}
     require_s3_bucket_without_active_restore(session, bucket)
@@ -2116,7 +2116,7 @@ def enable_s3_bucket(bucket_id: str, request: Request, session: Session = Depend
     require_admin(request)
     bucket = session.get(LocalS3Bucket, bucket_id)
     if not bucket or bucket.deleted_at:
-        raise HTTPException(404, "S3 LOCAL bucket not found")
+        raise HTTPException(404, "S3 Provider bucket not found")
     if bucket.active:
         return {"id": bucket.id, "active": True, "changed": False}
     dataset = session.get(LocalDataset, bucket.dataset_id)
@@ -2142,7 +2142,7 @@ def create_oci_bucket(request: Request, payload: OciBucketCreate, session: Sessi
         LocalOciBucket.deleted_at.is_(None),
     ))
     if existing:
-        raise HTTPException(409, "An OCI LOCAL bucket with this name already exists in the namespace")
+        raise HTTPException(409, "An OCI Provider bucket with this name already exists in the namespace")
     item = LocalOciBucket(namespace=namespace, name=name)
     session.add(item)
     identifier = audit(session, "LOCAL_OCI_BUCKET_CREATED", 201, item.name, item.namespace)
@@ -2156,7 +2156,7 @@ def require_oci_bucket_without_active_upload(session: Session, bucket: LocalOciB
         LocalMultipartUpload.bucket_id == bucket.id, LocalMultipartUpload.expires_at > utcnow(),
     ))
     if pending:
-        raise HTTPException(409, "OCI LOCAL bucket has active multipart uploads")
+        raise HTTPException(409, "OCI Provider bucket has active multipart uploads")
 
 
 @app.get("/api/local/oci-buckets/{bucket_id}/connection")
@@ -2165,7 +2165,7 @@ def oci_connection(bucket_id: str, request: Request, session: Session = Depends(
     require_admin(request)
     bucket = session.get(LocalOciBucket, bucket_id)
     if not bucket or not bucket.active or bucket.deleted_at:
-        raise HTTPException(404, "Active OCI LOCAL bucket not found")
+        raise HTTPException(404, "Active OCI Provider bucket not found")
     identifier = audit(session, "LOCAL_OCI_CONNECTION_VIEWED", 200, bucket.name, bucket.namespace)
     session.commit()
     return {
@@ -2173,9 +2173,9 @@ def oci_connection(bucket_id: str, request: Request, session: Session = Depends(
         "connection": {
             "object_storage_namespace": bucket.namespace,
             "destination_bucket": bucket.name,
-            "region": OCI_LOCAL_REGION,
-            "object_storage_endpoint_url": f"https://oci.{OCI_LOCAL_REGION}.fujin.internal",
-            "object_storage_ca_bundle_path": LOCAL_CA_BUNDLE_PATH,
+            "region": OCI_PROVIDER_REGION,
+            "object_storage_endpoint_url": f"https://oci.{OCI_PROVIDER_REGION}.fujin.internal",
+            "object_storage_ca_bundle_path": PROVIDER_CA_BUNDLE_PATH,
         },
         "objects": session.query(LocalOciObject).filter(LocalOciObject.bucket_id == bucket.id).count(),
     }
@@ -2186,7 +2186,7 @@ def disable_oci_bucket(bucket_id: str, request: Request, session: Session = Depe
     require_admin(request)
     bucket = session.get(LocalOciBucket, bucket_id)
     if not bucket or bucket.deleted_at:
-        raise HTTPException(404, "OCI LOCAL bucket not found")
+        raise HTTPException(404, "OCI Provider bucket not found")
     if not bucket.active:
         return {"id": bucket.id, "active": False, "changed": False}
     require_oci_bucket_without_active_upload(session, bucket)
@@ -2201,7 +2201,7 @@ def enable_oci_bucket(bucket_id: str, request: Request, session: Session = Depen
     require_admin(request)
     bucket = session.get(LocalOciBucket, bucket_id)
     if not bucket or bucket.deleted_at:
-        raise HTTPException(404, "OCI LOCAL bucket not found")
+        raise HTTPException(404, "OCI Provider bucket not found")
     if bucket.active:
         return {"id": bucket.id, "active": True, "changed": False}
     bucket.active = True
@@ -2212,11 +2212,11 @@ def enable_oci_bucket(bucket_id: str, request: Request, session: Session = Depen
 
 @app.delete("/api/local/s3-buckets/{bucket_id}")
 def delete_s3_bucket(bucket_id: str, request: Request, session: Session = Depends(get_session)) -> Response:
-    """Remove a LOCAL S3 bucket from the catalogue without deleting its dataset."""
+    """Remove a Provider S3 bucket from the catalogue without deleting its dataset."""
     require_admin(request)
     bucket = session.get(LocalS3Bucket, bucket_id)
     if not bucket or bucket.deleted_at:
-        raise HTTPException(404, "S3 LOCAL bucket not found")
+        raise HTTPException(404, "S3 Provider bucket not found")
     require_s3_bucket_without_active_restore(session, bucket)
     public_name = bucket.name
     bucket.active = False
@@ -2234,13 +2234,13 @@ def delete_dataset(dataset_id: str, request: Request, session: Session = Depends
     require_admin(request)
     dataset = session.get(LocalDataset, dataset_id)
     if not dataset or dataset.deleted_at:
-        raise HTTPException(404, "LOCAL dataset not found")
+        raise HTTPException(404, "provider dataset not found")
     linked_s3 = session.scalar(select(LocalS3Bucket).where(
         LocalS3Bucket.dataset_id == dataset.id, LocalS3Bucket.deleted_at.is_(None)
     ))
     linked_oci = session.scalar(select(LocalOciObject).where(LocalOciObject.dataset_id == dataset.id))
     if linked_s3 or linked_oci:
-        raise HTTPException(409, "Dataset is referenced by an active S3 bucket or OCI LOCAL object")
+        raise HTTPException(409, "Dataset is referenced by an active S3 bucket or OCI Provider object")
     # The S3 provider deliberately mounts payloads read-only.  The durable
     # materializer is the only process allowed to remove a Fujin-owned
     # generated directory, so request cleanup instead of attempting host I/O
@@ -2267,9 +2267,9 @@ def delete_oci_bucket(bucket_id: str, request: Request, session: Session = Depen
     require_admin(request)
     bucket = session.get(LocalOciBucket, bucket_id)
     if not bucket or bucket.deleted_at:
-        raise HTTPException(404, "OCI LOCAL bucket not found")
+        raise HTTPException(404, "OCI Provider bucket not found")
     require_oci_bucket_without_active_upload(session, bucket)
-    # OCI LOCAL is referential: removing the destination must also remove its
+    # OCI Provider is referential: removing the destination must also remove its
     # logical references, never the immutable source payload.  This releases a
     # dataset once no active S3 mapping or other OCI reference remains.
     removed_objects = session.query(LocalOciObject).filter(LocalOciObject.bucket_id == bucket.id).delete(synchronize_session=False)
@@ -2300,14 +2300,14 @@ def garbage_collect_local(request: Request, session: Session = Depends(get_sessi
 
 @app.post("/api/local/oci-buckets/{bucket_id}/objects/{object_key:path}/deep-audit")
 def deep_audit_oci_reference(bucket_id: str, object_key: str, request: Request, session: Session = Depends(get_session)) -> dict:
-    """Re-read the immutable physical source referenced by an OCI LOCAL object."""
+    """Re-read the immutable physical source referenced by an OCI Provider object."""
     require_admin(request)
     bucket = session.get(LocalOciBucket, bucket_id)
     if not bucket or not bucket.active or bucket.deleted_at:
-        raise HTTPException(404, "Active OCI LOCAL bucket not found")
+        raise HTTPException(404, "Active OCI Provider bucket not found")
     item = session.scalar(select(LocalOciObject).where(LocalOciObject.bucket_id == bucket.id, LocalOciObject.object_key == object_key))
     if not item:
-        raise HTTPException(404, "OCI LOCAL object not found")
+        raise HTTPException(404, "OCI Provider object not found")
     path = (PAYLOAD_ROOT / item.source_relative_path).resolve()
     try:
         path.relative_to(PAYLOAD_ROOT.resolve())
@@ -2325,7 +2325,7 @@ def deep_audit_oci_reference(bucket_id: str, object_key: str, request: Request, 
                        error_code=None if verified else "REFERENCE_MISMATCH")
     session.commit()
     if not verified:
-        raise HTTPException(409, "OCI LOCAL reference does not match its physical source evidence")
+        raise HTTPException(409, "OCI Provider reference does not match its physical source evidence")
     return {"object_key": object_key, "bytes": size, "sha256": observed, "verified": True, "request_id": identifier}
 
 
@@ -2534,7 +2534,7 @@ def oci_list_buckets(namespace: str, request: Request, session: Session = Depend
 
     LOCAL keeps destination buckets independently managed by Fujin; exposing
     them through the standard Object Storage API lets Raijin use its generic
-    private-endpoint discovery path rather than a LOCAL-specific switch.
+    private-endpoint discovery path rather than a provider-specific switch.
     """
     require_oci_identity(request)
     items = list(session.scalars(select(LocalOciBucket).where(
@@ -2602,7 +2602,7 @@ async def oci_create_multipart(namespace: str, bucket_name: str, request: Reques
     session.add(LocalMultipartUpload(id=upload_id, bucket_id=bucket.id, object_key=object_key,
                                      staging_relative_path=relative, metadata_json=json.dumps(body.get("metadata", {}), sort_keys=True),
                                      created_at=created_at, last_activity_at=created_at,
-                                     expires_at=created_at + timedelta(hours=FUJIN_LOCAL_MULTIPART_IDLE_TTL_HOURS)))
+                                     expires_at=created_at + timedelta(hours=FUJIN_PROVIDER_MULTIPART_IDLE_TTL_HOURS)))
     identifier = audit(session, "OCI_CREATE_MULTIPART", 200, bucket.name, object_key)
     session.commit()
     return {"uploadId": upload_id, "opc-request-id": identifier}
@@ -2731,7 +2731,7 @@ def oci_get_object(namespace: str, bucket_name: str, object_key: str, request: R
     try:
         path.relative_to(PAYLOAD_ROOT.resolve())
     except ValueError:
-        raise HTTPException(500, "Invalid OCI LOCAL reference")
+        raise HTTPException(500, "Invalid OCI Provider reference")
     if not path.is_file():
         raise HTTPException(503, "Referenced Fujin payload is unavailable")
     identifier = audit(session, "OCI_HEAD_OBJECT" if request.method == "HEAD" else "OCI_GET_OBJECT", 200, bucket.name, object_key)
@@ -2775,7 +2775,7 @@ async def s3_data_plane(request: Request, object_key: str, session: Session = De
         LocalS3Bucket.active.is_(True),
     ))
     if not bucket:
-        raise HTTPException(404, "No active S3 LOCAL bucket for this endpoint")
+        raise HTTPException(404, "No active S3 Provider bucket for this endpoint")
     authenticated = credential_bucket(request, session)
     if not authenticated or authenticated.id != bucket.id:
         raise HTTPException(403, "Invalid synthetic AWS credential")
@@ -2820,7 +2820,7 @@ async def s3_data_plane(request: Request, object_key: str, session: Session = De
         return Response(status_code=200, headers=headers) if request.method == "HEAD" else Response(control.content, media_type=control.content_type or "application/octet-stream", headers=headers)
     dataset = session.get(LocalDataset, bucket.dataset_id)
     if not dataset or dataset.deleted_at:
-        raise HTTPException(404, "S3 LOCAL dataset is unavailable")
+        raise HTTPException(404, "S3 provider dataset is unavailable")
     if request.query_params.get("list-type") == "2":
         prefix = request.query_params.get("prefix", "")
         max_keys = max(1, min(1000, int(request.query_params.get("max-keys", "1000"))))

@@ -2,7 +2,7 @@
 """Derive an OCI runtime profile for the private Fujin endpoint.
 
 The Raijin keeps its usual OCI SDK configuration and Instance Principal.  A
-LOCAL deployment needs only a separate runtime JSON so the Object Storage
+provider deployment needs only a separate runtime JSON so the Object Storage
 client uses the private service endpoint and its CA; the REAL profile remains
 untouched for a clean switch back to production.
 """
@@ -18,10 +18,10 @@ import stat
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("--source", type=Path, required=True, help="Existing REAL OCI runtime JSON")
-    result.add_argument("--output", type=Path, required=True, help="Derived LOCAL OCI runtime JSON")
-    result.add_argument("--namespace", required=True, help="Namespace configured in the LOCAL OCI bucket")
+    result.add_argument("--output", type=Path, required=True, help="Derived Provider OCI runtime JSON")
+    result.add_argument("--namespace", required=True, help="Namespace configured in the Provider OCI bucket")
     result.add_argument("--region", default="sa-saopaulo-1", help="Fujin private OCI endpoint region")
-    result.add_argument("--ca-bundle", default="/etc/fujin-local-ca/fujin-local.crt")
+    result.add_argument("--ca-bundle", default="/etc/fujin-provider-ca/fujin-provider.crt")
     return result
 
 
@@ -49,7 +49,7 @@ def main() -> None:
     temporary.write_text(json.dumps(source, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     temporary.chmod(stat.S_IRUSR | stat.S_IWUSR)
     temporary.replace(args.output)
-    print(f"Wrote isolated Fujin LOCAL OCI runtime profile: {args.output}")
+    print(f"Wrote isolated Fujin Provider OCI runtime profile: {args.output}")
 
 
 if __name__ == "__main__":

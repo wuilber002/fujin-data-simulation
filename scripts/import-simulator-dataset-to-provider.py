@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import validated Simulation payloads into the isolated LOCAL catalogue.
+"""Import validated Simulation payloads into the isolated provider catalogue.
 
 Only catalogue metadata is copied.  The immutable physical files remain owned
 by Fujin's payload repository and are never duplicated.  S3 storage class is
@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from app.fujin_local_schema import LocalAuditEvent, LocalDataset, migrate
+from app.provider_schema import LocalAuditEvent, LocalDataset, migrate
 from app.simulation_schema import FujinPayloadDataset, FujinPayloadFile
 from app.simulator_store import simulator_database_url
 
@@ -97,13 +97,13 @@ def import_dataset(source_engine, local_engine, payload_root: Path, source_id: s
             manifest = json.loads(existing.manifest_json or "{}")
             if manifest.get("provenance", {}).get("simulation_dataset_id") == source_id:
                 return existing
-            raise ValueError("A different LOCAL dataset already uses the requested name")
+            raise ValueError("A different provider dataset already uses the requested name")
         path_owner = local_session.scalar(select(LocalDataset).where(
             LocalDataset.repository_relative_path == source.repository_relative_path,
             LocalDataset.deleted_at.is_(None),
         ))
         if path_owner:
-            raise ValueError(f"Payload path is already registered by LOCAL dataset {path_owner.name}")
+            raise ValueError(f"Payload path is already registered by provider dataset {path_owner.name}")
         now = datetime.now(timezone.utc)
         imported = LocalDataset(
             name=name,
@@ -139,10 +139,10 @@ def main() -> None:
     parser.add_argument("--source-id", required=True)
     parser.add_argument("--name", required=True)
     args = parser.parse_args()
-    local_url = os.environ.get("FUJIN_LOCAL_DATABASE_URL", "").strip()
-    payload_root = os.environ.get("FUJIN_LOCAL_PAYLOAD_ROOT", "").strip()
+    local_url = os.environ.get("FUJIN_PROVIDER_DATABASE_URL", "").strip()
+    payload_root = os.environ.get("FUJIN_PROVIDER_PAYLOAD_ROOT", "").strip()
     if not local_url or not payload_root:
-        raise SystemExit("FUJIN_LOCAL_DATABASE_URL and FUJIN_LOCAL_PAYLOAD_ROOT are required")
+        raise SystemExit("FUJIN_PROVIDER_DATABASE_URL and FUJIN_PROVIDER_PAYLOAD_ROOT are required")
     imported = import_dataset(
         create_engine(simulator_database_url(), pool_pre_ping=True),
         create_engine(local_url, pool_pre_ping=True),

@@ -1,4 +1,4 @@
-"""Provider-level contract checks for the isolated Fujin LOCAL catalogue."""
+"""Provider-level contract checks for the isolated Fujin Provider catalogue."""
 
 import asyncio
 import base64
@@ -56,7 +56,7 @@ def _create_ready_dataset(module, request, payload, session):
 
 
 def test_s3control_rest_xml_manifest_contract():
-    import app.fujin_local as module
+    import app.provider as module
     request = _request("POST", "/v20180820/jobs", body=(
         b'<CreateJobRequest xmlns="http://awss3control.amazonaws.com/doc/2018-08-20/">'
         b'<Manifest><Location><ObjectArn>arn:aws:s3:::control/manifest.csv</ObjectArn>'
@@ -66,9 +66,9 @@ def test_s3control_rest_xml_manifest_contract():
 
 
 def test_sqlite_catalogue_uses_wal_and_bounded_busy_wait(tmp_path, monkeypatch):
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'wal.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_SQLITE_BUSY_TIMEOUT_SECONDS", "30")
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'wal.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_SQLITE_BUSY_TIMEOUT_SECONDS", "30")
+    import app.provider as module
     module = importlib.reload(module)
     try:
         with module.engine.connect() as connection:
@@ -82,19 +82,19 @@ def test_sqlite_catalogue_uses_wal_and_bounded_busy_wait(tmp_path, monkeypatch):
 
 
 def test_provider_readiness_confirms_catalogue_and_payload_paths(tmp_path, monkeypatch):
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'ready.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(Path(tmp_path) / "payloads"))
-    monkeypatch.setenv("FUJIN_LOCAL_STAGING_ROOT", str(Path(tmp_path) / "staging"))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'ready.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(Path(tmp_path) / "payloads"))
+    monkeypatch.setenv("FUJIN_PROVIDER_STAGING_ROOT", str(Path(tmp_path) / "staging"))
+    import app.provider as module
     module = importlib.reload(module)
     module.startup()
-    assert module.readyz() == {"status": "ready", "service": "fujin-local"}
+    assert module.readyz() == {"status": "ready", "service": "fujin-provider"}
     assert module.PAYLOAD_ROOT.is_dir() and module.STAGING_ROOT.is_dir()
 
 
 def test_local_dataset_generation_is_queued_without_a_host_path(tmp_path, monkeypatch):
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'generation.db'}")
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'generation.db'}")
+    import app.provider as module
     module = importlib.reload(module); module.startup()
     try:
         with module.SessionLocal() as session:
@@ -122,8 +122,8 @@ def test_local_dataset_generation_is_queued_without_a_host_path(tmp_path, monkey
 
 
 def test_local_rejects_external_dataset_paths_and_packages(tmp_path, monkeypatch):
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'no-import.db'}")
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'no-import.db'}")
+    import app.provider as module
     module = importlib.reload(module); module.startup()
     try:
         with module.SessionLocal() as session:
@@ -146,10 +146,10 @@ def test_local_rejects_external_dataset_paths_and_packages(tmp_path, monkeypatch
 def test_deleting_a_generated_dataset_removes_its_owned_files(tmp_path, monkeypatch):
     database = Path(tmp_path) / "delete-generated.db"
     root = Path(tmp_path) / "payloads"
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{database}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
-    import app.fujin_local as module
-    from app.fujin_local_materializer import process_generation_jobs
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{database}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root))
+    import app.provider as module
+    from app.provider_materializer import process_generation_jobs
     module = importlib.reload(module); module.startup()
     try:
         with module.SessionLocal() as session:
@@ -180,9 +180,9 @@ def test_deleting_a_generated_dataset_removes_its_owned_files(tmp_path, monkeypa
 
 
 def test_data_plane_provider_state_is_short_cached_and_admin_invalidation_is_immediate(tmp_path, monkeypatch):
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'provider-cache.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PROVIDER_STATE_CACHE_SECONDS", "30")
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'provider-cache.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_STATE_CACHE_SECONDS", "30")
+    import app.provider as module
     module = importlib.reload(module); module.startup()
     try:
         with module.SessionLocal() as session:
@@ -202,7 +202,7 @@ def test_data_plane_provider_state_is_short_cached_and_admin_invalidation_is_imm
 
 
 def test_data_plane_guard_returns_retryable_503_when_catalogue_checkout_is_unavailable(monkeypatch):
-    import app.fujin_local as module
+    import app.provider as module
 
     monkeypatch.setattr(module, "data_plane_provider_enabled", lambda _provider: (_ for _ in ()).throw(
         module.SQLAlchemyTimeoutError("pool", None, None)
@@ -218,8 +218,8 @@ def test_data_plane_guard_returns_retryable_503_when_catalogue_checkout_is_unava
 
 def test_unhandled_oci_provider_error_is_searchable_without_exposing_multipart_handle(tmp_path, monkeypatch):
     """Unexpected data-plane failures must be diagnosable outside container logs."""
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'provider-500.db'}")
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'provider-500.db'}")
+    import app.provider as module
     module = importlib.reload(module); module.startup()
     try:
         with module.SessionLocal() as session:
@@ -253,12 +253,12 @@ def test_unhandled_oci_provider_error_is_searchable_without_exposing_multipart_h
 
 
 def test_hot_multipart_cleanup_does_not_delete_audit_evidence(tmp_path, monkeypatch):
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'retention.db'}")
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'retention.db'}")
+    import app.provider as module
     module = importlib.reload(module); module.startup()
     try:
         with module.SessionLocal() as session:
-            old = module.utcnow() - module.timedelta(hours=module.FUJIN_LOCAL_AUDIT_SUCCESS_RETENTION_HOURS + 1)
+            old = module.utcnow() - module.timedelta(hours=module.FUJIN_PROVIDER_AUDIT_SUCCESS_RETENTION_HOURS + 1)
             session.add(module.LocalAuditEvent(request_id="retention-old", operation="OCI_UPLOAD_PART", status_code=200, created_at=old))
             session.commit()
             assert module.cleanup_expired_multipart_uploads(session, now=module.utcnow()) == 0
@@ -271,7 +271,7 @@ def test_hot_multipart_cleanup_does_not_delete_audit_evidence(tmp_path, monkeypa
 
 
 def test_aws_chunked_object_body_removes_framing_and_validates_crc32():
-    import app.fujin_local as module
+    import app.provider as module
     content = b'bucket,"folder/object, one.bin"\n'
     checksum = base64.b64encode((zlib.crc32(content) & 0xffffffff).to_bytes(4, "big"))
     framed = (
@@ -295,7 +295,7 @@ def test_aws_chunked_object_body_removes_framing_and_validates_crc32():
 
 
 def test_aws_chunked_object_body_rejects_length_mismatch():
-    import app.fujin_local as module
+    import app.provider as module
     framed = b"4\r\ndata\r\n0\r\n\r\n"
     headers = [
         (b"content-encoding", b"aws-chunked"),
@@ -307,7 +307,7 @@ def test_aws_chunked_object_body_rejects_length_mismatch():
 
 
 def test_s3_batch_manifest_parser_supports_csv_and_url_encoded_keys():
-    import app.fujin_local as module
+    import app.provider as module
     assert module.parse_s3_batch_manifest(
         b'bucket,"folder/object%2C%20one.bin"\n'
     ) == [("folder/object, one.bin", "folder/object%2C%20one.bin")]
@@ -317,9 +317,9 @@ def test_s3_batch_manifest_parser_supports_csv_and_url_encoded_keys():
 
 
 def test_local_console_exposes_only_local_administration_controls():
-    import app.fujin_local as module
+    import app.provider as module
     page = module.console()
-    assert "Fujin LOCAL" in page
+    assert "Fujin Provider" in page
     assert "aws-provider-toggle" in page and "oci-provider-toggle" in page
     assert "Encerrar restores AWS ativos" in page and "Encerrar uploads OCI ativos" in page
     assert "'Operações AWS':'aws'" in page and "'Operações OCI':'oci'" in page
@@ -394,7 +394,7 @@ def test_local_console_exposes_only_local_administration_controls():
 
 
 def test_local_console_has_fujin_operational_shell_and_cloud_views():
-    import app.fujin_local as module
+    import app.provider as module
     page = module.console()
     assert "static/operational-shell.css?v=20260910-1" in page
     assert "static/operational-shell.js?v=20260910-1" in page
@@ -419,7 +419,7 @@ def test_local_console_has_fujin_operational_shell_and_cloud_views():
 
 
 def test_local_console_uses_the_shared_operational_card_contract():
-    import app.fujin_local as module
+    import app.provider as module
     page = module.console()
     shell = Path("app/static/operational-shell.js").read_text()
     styles = Path("app/static/operational-shell.css").read_text()
@@ -438,8 +438,8 @@ def test_local_console_uses_the_shared_operational_card_contract():
 
 
 def test_local_console_exposes_generic_private_aws_and_oci_endpoint_profiles(tmp_path, monkeypatch):
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'endpoints.db'}")
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'endpoints.db'}")
+    import app.provider as module
     module = importlib.reload(module); module.startup()
     with module.SessionLocal() as session:
         profile = module.overview(_request("GET", "/api/local/overview"), session)["private_endpoint_profile"]
@@ -451,7 +451,7 @@ def test_local_console_exposes_generic_private_aws_and_oci_endpoint_profiles(tmp
 
 
 def test_private_tls_script_covers_all_regional_provider_hostnames():
-    script = Path("scripts/run-fujin-local.sh").read_text(encoding="utf-8")
+    script = Path("scripts/run-fujin-provider.sh").read_text(encoding="utf-8")
     assert "DNS:sts.${aws_region}.fujin.internal" in script
     assert "DNS:control.${endpoint_id}.s3.${aws_region}.fujin.internal" in script
     assert "DNS:oci.${oci_region}.fujin.internal" in script
@@ -463,15 +463,15 @@ def test_local_oci_runtime_profile_keeps_real_configuration_isolated(tmp_path):
     output = Path(tmp_path) / "local-runtime.json"
     source.write_text(json.dumps({"tenancy_ocid": "preserved", "object_storage_namespace": "real"}), encoding="utf-8")
     completed = subprocess.run([
-        sys.executable, "scripts/configure-fujin-local-oci-runtime.py", "--source", str(source),
+        sys.executable, "scripts/configure-fujin-provider-oci-runtime.py", "--source", str(source),
         "--output", str(output), "--namespace", "local-target",
     ], check=True, capture_output=True, text=True)
     derived = json.loads(output.read_text(encoding="utf-8"))
-    assert "isolated Fujin LOCAL OCI runtime" in completed.stdout
+    assert "isolated Fujin Provider OCI runtime" in completed.stdout
     assert derived == {
         "tenancy_ocid": "preserved", "object_storage_namespace": "local-target",
         "object_storage_endpoint_url": "https://oci.sa-saopaulo-1.fujin.internal",
-        "object_storage_ca_bundle_path": "/etc/fujin-local-ca/fujin-local.crt",
+        "object_storage_ca_bundle_path": "/etc/fujin-provider-ca/fujin-provider.crt",
     }
     assert stat.S_IMODE(output.stat().st_mode) == 0o600
     assert json.loads(source.read_text(encoding="utf-8"))["object_storage_namespace"] == "real"
@@ -479,11 +479,11 @@ def test_local_oci_runtime_profile_keeps_real_configuration_isolated(tmp_path):
 
 def test_compose_keeps_the_materializer_private_from_the_provider_api():
     compose = Path("docker-compose.yml").read_text(encoding="utf-8")
-    provider = compose.split("  fujin-local:\n", 1)[1].split("  fujin-materializer:\n", 1)[0]
+    provider = compose.split("  fujin-provider:\n", 1)[1].split("  fujin-materializer:\n", 1)[0]
     materializer = compose.split("  fujin-materializer:\n", 1)[1].split("  fujin-simulator:\n", 1)[0]
-    assert 'command: ["python3", "-m", "app.fujin_local_materializer"]' in materializer
-    assert "FUJIN_LOCAL_PAYLOAD_ROOT" in provider
-    assert "FUJIN_LOCAL_PAYLOAD_ROOT" in materializer
+    assert 'command: ["python3", "-m", "app.provider_materializer"]' in materializer
+    assert "FUJIN_PROVIDER_PAYLOAD_ROOT" in provider
+    assert "FUJIN_PROVIDER_PAYLOAD_ROOT" in materializer
     assert "ports:" not in materializer
     assert "raijin" not in compose.lower()
 
@@ -497,14 +497,14 @@ def test_compose_exposes_only_fujin_services_on_loopback():
 
 
 def test_local_administration_does_not_accept_an_obsolete_browser_token(monkeypatch):
-    monkeypatch.setenv("FUJIN_LOCAL_ADMIN_TOKEN", "obsolete-token")
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_ADMIN_TOKEN", "obsolete-token")
+    import app.provider as module
     module = importlib.reload(module)
     assert module.require_admin(_request("GET", "/api/local/overview")) is None
 
 
 def test_batch_restore_retention_reads_boto3_expiration_in_days_xml():
-    import app.fujin_local as module
+    import app.provider as module
 
     body = b"""<CreateJobRequest xmlns="http://awss3.amazonaws.com/doc/2006-03-01/">
       <Operation><S3InitiateRestoreObject>
@@ -522,10 +522,10 @@ def test_s3_bucket_logical_multiplier_projects_independent_keys_without_copying_
     package.mkdir(parents=True)
     (package / "a.bin").write_bytes(b"aaa")
     (package / "b.bin").write_bytes(b"bbbb")
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'multiplier.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'multiplier.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root))
 
-    import app.fujin_local as module
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         manifest = {"objects": [
@@ -584,10 +584,10 @@ def test_s3_restore_policy_update_only_affects_future_requests(tmp_path, monkeyp
     payload = b"restore-policy"
     (package / "object.bin").write_bytes(payload)
     digest = hashlib.sha256(payload).hexdigest()
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'policy.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'policy.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root))
 
-    import app.fujin_local as module
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         admin = _request("POST", "/api/local")
@@ -645,11 +645,11 @@ def test_local_s3_restore_batch_and_oci_reference(tmp_path, monkeypatch):
     payload = b"representative-bytes"
     source.write_bytes(payload)
     digest = hashlib.sha256(payload).hexdigest()
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'local.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
-    monkeypatch.setenv("FUJIN_LOCAL_STAGING_ROOT", str(Path(tmp_path) / "staging"))
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'local.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root))
+    monkeypatch.setenv("FUJIN_PROVIDER_STAGING_ROOT", str(Path(tmp_path) / "staging"))
 
-    import app.fujin_local as module
+    import app.provider as module
     module = importlib.reload(module)
     module.startup()
     session = module.SessionLocal()
@@ -709,12 +709,12 @@ def test_fujin_restore_head_e2e_keeps_per_object_utc_midnight_boundaries(tmp_pat
             "storage_class": "DEEP_ARCHIVE",
         })
     monkeypatch.setenv(
-        "FUJIN_LOCAL_DATABASE_URL",
+        "FUJIN_PROVIDER_DATABASE_URL",
         f"sqlite+pysqlite:///{Path(tmp_path) / 'utc-midnight-e2e.db'}",
     )
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root))
 
-    import app.fujin_local as module
+    import app.provider as module
     module = importlib.reload(module)
     module.startup()
     session = module.SessionLocal()
@@ -781,9 +781,9 @@ def test_fujin_restore_head_e2e_keeps_per_object_utc_midnight_boundaries(tmp_pat
 
 def test_local_dataset_deletion_is_protected_by_s3_references(tmp_path, monkeypatch):
     root = Path(tmp_path) / "payloads"; (root / "snap").mkdir(parents=True)
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'lifecycle.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'lifecycle.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local/datasets")
@@ -801,9 +801,9 @@ def test_local_dataset_deletion_is_protected_by_s3_references(tmp_path, monkeypa
 
 def test_local_dataset_can_be_deleted_after_s3_revocation(tmp_path, monkeypatch):
     root = Path(tmp_path) / "payloads"; (root / "snap").mkdir(parents=True)
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'revocation.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'revocation.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local/datasets")
@@ -818,9 +818,9 @@ def test_local_dataset_can_be_deleted_after_s3_revocation(tmp_path, monkeypatch)
 
 def test_deleted_s3_bucket_name_can_be_recreated_with_new_projection(tmp_path, monkeypatch):
     root = Path(tmp_path) / "payloads"; (root / "snap").mkdir(parents=True)
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'recreate.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'recreate.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local")
@@ -847,10 +847,10 @@ def test_deleted_s3_bucket_name_can_be_recreated_with_new_projection(tmp_path, m
 
 def test_user_friendly_local_generation_builds_metadata_and_validates(tmp_path, monkeypatch):
     root = Path(tmp_path) / "payloads"
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'package-flow.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
-    import app.fujin_local as module
-    from app.fujin_local_materializer import process_generation_jobs
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'package-flow.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root))
+    import app.provider as module
+    from app.provider_materializer import process_generation_jobs
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local/datasets/generate")
@@ -877,9 +877,9 @@ def test_user_friendly_local_generation_builds_metadata_and_validates(tmp_path, 
 
 def test_local_s3_bucket_can_be_disabled_enabled_and_deleted(tmp_path, monkeypatch):
     root = Path(tmp_path) / "payloads"; (root / "snap").mkdir(parents=True)
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'bucket-state.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'bucket-state.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local/datasets")
@@ -924,9 +924,9 @@ def test_bucket_storage_class_overrides_legacy_dataset_tier(tmp_path, monkeypatc
     root = Path(tmp_path) / "payloads"; (root / "snap").mkdir(parents=True)
     payload = b"tier-neutral"; (root / "snap/object.bin").write_bytes(payload)
     digest = hashlib.sha256(payload).hexdigest()
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'tier.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'tier.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local/datasets")
@@ -954,7 +954,7 @@ def test_bucket_storage_class_overrides_legacy_dataset_tier(tmp_path, monkeypatc
 
 def test_validated_simulation_dataset_import_is_zero_copy_and_tier_neutral(tmp_path):
     from app.simulation_schema import FujinPayloadDataset, FujinPayloadFile, SimulationBase
-    from app.fujin_local_schema import LocalBase, LocalDataset
+    from app.provider_schema import LocalBase, LocalDataset
 
     root = Path(tmp_path) / "payloads"
     relative = Path("datasets/source-id/aa/bb/00000001-payload.bin")
@@ -983,7 +983,7 @@ def test_validated_simulation_dataset_import_is_zero_copy_and_tier_neutral(tmp_p
         ))
         session.add(source_file); session.commit()
     spec = importlib.util.spec_from_file_location(
-        "import_simulation_dataset", "scripts/import-simulation-dataset-to-fujin-local.py"
+            "import_simulator_dataset", "scripts/import-simulator-dataset-to-provider.py"
     )
     importer = importlib.util.module_from_spec(spec); spec.loader.exec_module(importer)
     imported = importer.import_dataset(source_engine, local_engine, root, "source-id", "local-representative")
@@ -999,10 +999,10 @@ def test_deleting_oci_bucket_releases_only_its_referential_objects(tmp_path, mon
     root = Path(tmp_path) / "payloads"; (root / "snap").mkdir(parents=True)
     payload = b"referential-oci"; (root / "snap/object.bin").write_bytes(payload)
     digest = hashlib.sha256(payload).hexdigest()
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'oci-lifecycle.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
-    monkeypatch.setenv("FUJIN_LOCAL_STAGING_ROOT", str(Path(tmp_path) / "staging"))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'oci-lifecycle.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root))
+    monkeypatch.setenv("FUJIN_PROVIDER_STAGING_ROOT", str(Path(tmp_path) / "staging"))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local")
@@ -1012,7 +1012,7 @@ def test_deleting_oci_bucket_releases_only_its_referential_objects(tmp_path, mon
         assert connection["connection"] == {
             "object_storage_namespace": "local", "destination_bucket": "release-target",
             "region": "sa-saopaulo-1", "object_storage_endpoint_url": "https://oci.sa-saopaulo-1.fujin.internal",
-            "object_storage_ca_bundle_path": "/etc/fujin-local-ca/fujin-local.crt",
+            "object_storage_ca_bundle_path": "/etc/fujin-provider-ca/fujin-provider.crt",
         }
         assert module.disable_oci_bucket(destination["id"], request, session)["active"] is False
         assert module.list_oci_buckets(request, session)[0]["active"] is False
@@ -1030,9 +1030,9 @@ def test_representative_dataset_validation_records_physical_evidence(tmp_path, m
     root = Path(tmp_path) / "payloads"; (root / "snap").mkdir(parents=True)
     payload = b"validated-representative"; (root / "snap/object.bin").write_bytes(payload)
     digest = hashlib.sha256(payload).hexdigest()
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'validation.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'validation.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local/datasets")
@@ -1048,7 +1048,7 @@ def test_representative_dataset_validation_records_physical_evidence(tmp_path, m
         except HTTPException as error:
             assert error.status_code == 422
         else:
-            raise AssertionError("unvalidated dataset was accepted by a LOCAL S3 bucket")
+            raise AssertionError("unvalidated dataset was accepted by a Provider S3 bucket")
         result = module.validate_dataset(dataset["id"], _request("POST", "/api/local/datasets/id/validate"), session)
         assert result["state"] == "READY" and result["objects"] == 1 and result["bytes"] == len(payload)
         after = module.dataset_details(dataset["id"], request, session)
@@ -1070,9 +1070,9 @@ def test_oci_reference_deep_audit_and_expired_state_gc(tmp_path, monkeypatch):
     root = Path(tmp_path) / "payloads"; (root / "snap").mkdir(parents=True)
     payload = b"deep-audit-reference"; path = root / "snap/object.bin"; path.write_bytes(payload)
     digest = hashlib.sha256(payload).hexdigest()
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'deep-audit.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root)); monkeypatch.setenv("FUJIN_LOCAL_STAGING_ROOT", str(Path(tmp_path) / "staging"))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'deep-audit.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root)); monkeypatch.setenv("FUJIN_PROVIDER_STAGING_ROOT", str(Path(tmp_path) / "staging"))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local")
@@ -1093,9 +1093,9 @@ def test_oci_reference_deep_audit_and_expired_state_gc(tmp_path, monkeypatch):
 
 def test_aborted_multipart_leaves_no_oci_reference_or_cache(tmp_path, monkeypatch):
     root = Path(tmp_path) / "payloads"; staging = Path(tmp_path) / "staging"
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'abort.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root)); monkeypatch.setenv("FUJIN_LOCAL_STAGING_ROOT", str(staging))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'abort.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root)); monkeypatch.setenv("FUJIN_PROVIDER_STAGING_ROOT", str(staging))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local/oci-buckets")
@@ -1113,8 +1113,8 @@ def test_aborted_multipart_leaves_no_oci_reference_or_cache(tmp_path, monkeypatc
 
 
 def test_active_multipart_upload_renews_its_idle_expiry(tmp_path, monkeypatch):
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'multipart-idle.db'}")
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'multipart-idle.db'}")
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         bucket = module.LocalOciBucket(namespace="local", name="multipart-idle-target")
@@ -1129,7 +1129,7 @@ def test_active_multipart_upload_renews_its_idle_expiry(tmp_path, monkeypatch):
         session.add(upload); session.flush()
         module.touch_multipart_upload(upload, reference)
         assert module.as_utc(upload.last_activity_at) == reference
-        assert module.as_utc(upload.expires_at) == reference + timedelta(hours=module.FUJIN_LOCAL_MULTIPART_IDLE_TTL_HOURS)
+        assert module.as_utc(upload.expires_at) == reference + timedelta(hours=module.FUJIN_PROVIDER_MULTIPART_IDLE_TTL_HOURS)
         assert module.cleanup_expired_multipart_uploads(session, reference + timedelta(hours=1)) == 0
     finally:
         session.close()
@@ -1140,9 +1140,9 @@ def test_oci_uploads_keep_only_evidence_and_reference_original_payload(tmp_path,
     payload = b"reference-only-multipart-payload"
     (root / "snap").mkdir(parents=True); (root / "snap/object.bin").write_bytes(payload)
     digest = hashlib.sha256(payload).hexdigest()
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'reference-only.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root)); monkeypatch.setenv("FUJIN_LOCAL_STAGING_ROOT", str(staging))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'reference-only.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root)); monkeypatch.setenv("FUJIN_PROVIDER_STAGING_ROOT", str(staging))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local")
@@ -1190,9 +1190,9 @@ def test_oci_list_paginates_and_head_returns_persisted_provenance(tmp_path, monk
     root = Path(tmp_path) / "payloads"; (root / "snap").mkdir(parents=True)
     payload = b"pagination-provenance"; (root / "snap/object.bin").write_bytes(payload)
     digest = hashlib.sha256(payload).hexdigest()
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'pagination.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'pagination.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local")
@@ -1242,9 +1242,9 @@ def test_multipart_commit_rejects_evidence_that_differs_from_source(tmp_path, mo
     root = Path(tmp_path) / "payloads"; payload = b"immutable-source"
     (root / "snap").mkdir(parents=True); (root / "snap/object.bin").write_bytes(payload)
     digest = hashlib.sha256(payload).hexdigest()
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'mismatch.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root)); monkeypatch.setenv("FUJIN_LOCAL_STAGING_ROOT", str(Path(tmp_path) / "staging"))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'mismatch.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root)); monkeypatch.setenv("FUJIN_PROVIDER_STAGING_ROOT", str(Path(tmp_path) / "staging"))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local")
@@ -1267,10 +1267,10 @@ def test_multipart_commit_rejects_evidence_that_differs_from_source(tmp_path, mo
 
 def test_oci_bucket_creation_rejects_duplicate_name_in_namespace(tmp_path, monkeypatch):
     monkeypatch.setenv(
-        "FUJIN_LOCAL_DATABASE_URL",
+        "FUJIN_PROVIDER_DATABASE_URL",
         f"sqlite+pysqlite:///{Path(tmp_path) / 'oci-duplicate.db'}",
     )
-    import app.fujin_local as module
+    import app.provider as module
     module = importlib.reload(module); module.startup()
     with module.SessionLocal() as session:
         request = _request("POST", "/api/local/oci-buckets")
@@ -1283,9 +1283,9 @@ def test_oci_bucket_creation_rejects_duplicate_name_in_namespace(tmp_path, monke
 
 def test_s3_local_rejects_a_region_without_a_private_tls_profile(tmp_path, monkeypatch):
     root = Path(tmp_path) / "payloads"; (root / "snap").mkdir(parents=True)
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'region.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root)); monkeypatch.setenv("FUJIN_LOCAL_REGION", "us-east-1")
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'region.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root)); monkeypatch.setenv("FUJIN_PROVIDER_REGION", "us-east-1")
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         dataset = _create_ready_dataset(module, _request("POST", "/api/local"), module.DatasetCreate(name="region-dataset", snapshot_id="region-snapshot", repository_relative_path="snap", quota_bytes=0), session)
@@ -1303,9 +1303,9 @@ def test_restore_policy_randomizes_batch_start_then_distributes_availability(tmp
     root = Path(tmp_path) / "payloads"; (root / "snap").mkdir(parents=True)
     payload = b"restore-policy"; (root / "snap/a.bin").write_bytes(payload); (root / "snap/b.bin").write_bytes(payload)
     digest = hashlib.sha256(payload).hexdigest()
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'restore-policy.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'restore-policy.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local")
@@ -1373,7 +1373,7 @@ def test_restore_policy_randomizes_batch_start_then_distributes_availability(tmp
 
 
 def test_restore_availability_window_cannot_exceed_48_hours():
-    import app.fujin_local as module
+    import app.provider as module
     normalized = module.normalized_restore_policy({
         "minimum_delay_hours": 36,
         "random_variation_hours": 3,
@@ -1412,9 +1412,9 @@ def test_local_restore_survives_fujin_process_reload(tmp_path, monkeypatch):
     payload = b"restart-restore"; (root / "snap/object.bin").write_bytes(payload)
     digest = hashlib.sha256(payload).hexdigest()
     database = Path(tmp_path) / "restart.db"
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{database}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{database}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local")
@@ -1432,8 +1432,8 @@ def test_local_restore_survives_fujin_process_reload(tmp_path, monkeypatch):
 
 
 def test_local_data_plane_requires_explicit_fujin_activation(tmp_path, monkeypatch):
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'activation.db'}")
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'activation.db'}")
+    import app.provider as module
     module = importlib.reload(module); module.startup()
 
     async def next_handler(_request):
@@ -1461,9 +1461,9 @@ def test_local_data_plane_requires_explicit_fujin_activation(tmp_path, monkeypat
 
 
 def test_administrator_can_explicitly_cancel_local_operations_before_deactivation(tmp_path, monkeypatch):
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'cancel.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_STAGING_ROOT", str(Path(tmp_path) / "staging"))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'cancel.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_STAGING_ROOT", str(Path(tmp_path) / "staging"))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local")
@@ -1482,9 +1482,9 @@ def test_administrator_can_explicitly_cancel_local_operations_before_deactivatio
 
 
 def test_cloud_provider_controls_are_isolated(tmp_path, monkeypatch):
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'cloud-controls.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_STAGING_ROOT", str(Path(tmp_path) / "staging-cloud"))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'cloud-controls.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_STAGING_ROOT", str(Path(tmp_path) / "staging-cloud"))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         request = _request("POST", "/api/local")
@@ -1524,8 +1524,8 @@ def test_cloud_provider_controls_are_isolated(tmp_path, monkeypatch):
 
 
 def test_local_audit_is_searchable_by_request_bucket_object_and_period(tmp_path, monkeypatch):
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'audit-search.db'}")
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'audit-search.db'}")
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         index_names = {
@@ -1560,8 +1560,8 @@ def test_local_audit_is_searchable_by_request_bucket_object_and_period(tmp_path,
 
 
 def test_provider_errors_return_correlatable_s3_and_oci_request_ids(tmp_path, monkeypatch):
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'provider-errors.db'}")
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'provider-errors.db'}")
+    import app.provider as module
     module = importlib.reload(module); module.startup()
     with module.SessionLocal() as session:
         module.activate_local_provider(_request("POST", "/api/local/provider/activate"), session)
@@ -1593,9 +1593,9 @@ def test_local_oci_contract_with_sdk(tmp_path, monkeypatch):
     root = Path(tmp_path) / "payloads"; payload = b"oci-sdk-payload"
     (root / "snapshot").mkdir(parents=True); (root / "snapshot/object.bin").write_bytes(payload)
     digest = hashlib.sha256(payload).hexdigest()
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'oci-sdk.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root)); monkeypatch.setenv("FUJIN_LOCAL_STAGING_ROOT", str(Path(tmp_path) / "staging"))
-    import app.fujin_local as module
+    monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'oci-sdk.db'}")
+    monkeypatch.setenv("FUJIN_PROVIDER_PAYLOAD_ROOT", str(root)); monkeypatch.setenv("FUJIN_PROVIDER_STAGING_ROOT", str(Path(tmp_path) / "staging"))
+    import app.provider as module
     module = importlib.reload(module); module.startup(); session = module.SessionLocal()
     try:
         admin = _request("POST", "/api/local/datasets")

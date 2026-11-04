@@ -2,18 +2,18 @@
 
 ## Objetivo e isolamento
 
-Este runbook prepara amostras físicas controladas para o **Fujin LOCAL**. O
+Este runbook prepara amostras físicas controladas para o **Fujin Provider**. O
 modo `SIMULATION` nunca lê, gera, monta ou administra arquivos físicos: usa
 somente bytes determinísticos. O volume é montado em leitura no provedor S3
-`s3-oci-fujin-local` e em leitura/escrita exclusivamente no
-`s3-oci-fujin-local-materializer`; API e workers Raijin não recebem esse mount.
+`s3-oci-fujin-provider` e em leitura/escrita exclusivamente no
+`s3-oci-fujin-provider-materializer`; API e workers Raijin não recebem esse mount.
 O destino continua consumindo, validando e descartando os bytes.
 
-O catálogo em `/var/lib/s3-oci-migration/fujin-local` é compartilhado entre
+O catálogo em `/var/lib/s3-oci-migration/fujin-provider` é compartilhado entre
 esses dois containers, portanto usa SELinux `:z`; `:Z` é exclusivo e faria um
 container relabelar o catálogo, impedindo o outro de abrir SQLite.
 
-O operador nunca fornece um path. Pela console **Fujin LOCAL**, cria um dataset
+O operador nunca fornece um path. Pela console **Fujin Provider**, cria um dataset
 com nome, quota, seed e perfil; o materializer gera arquivos de alta entropia,
 calcula SHA-256 e só marca o dataset `READY` após gravar o manifesto durável.
 
@@ -22,7 +22,7 @@ calcula SHA-256 e só marca o dataset `READY` após gravar o manifesto durável.
 O Block Volume OCI dedicado de **15 TB** foi criado e anexado à VM como `/dev/oracleoci/oraclevdb`. Está formatado em XFS e montado persistentemente em `/var/lib/s3-oci-migration/fujin-payloads`, com permissões `0700`, separado de banco, logs e releases.
 
 1. Confirmar espaço livre, IOPS e throughput antes de cada ensaio físico.
-2. Iniciar `scripts/start-fujin-local-runtime.sh`. Somente Fujin LOCAL recebe
+2. Iniciar `scripts/start-fujin-provider-runtime.sh`. Somente Fujin Provider recebe
    o bind: o provedor S3 com `:ro` e o materializer com `:rw`.
 3. Confirmar que `scripts/start-runtime.sh SIMULATION` não contém esse mount,
    rota, configuração nem reader de payload físico.
@@ -31,7 +31,7 @@ Antes do ensaio de 5–10 TB, confirmar novamente que o mount corresponde ao vol
 
 ## Smoke de 20–100 GB
 
-1. Crie um dataset pequeno pela console Fujin LOCAL e aguarde `READY`.
+1. Crie um dataset pequeno pela console Fujin Provider e aguarde `READY`.
 2. Associe-o a um bucket S3 LOCAL, escolhendo o multiplicador lógico que
    representa as réplicas do catálogo sem copiar os bytes físicos.
 3. Execute discovery, BULK ou STANDARD, range e multipart; pause/resume e

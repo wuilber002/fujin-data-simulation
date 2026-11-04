@@ -4,8 +4,8 @@ from pathlib import Path
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from app.fujin_local_materializer import normalized_profile, process_generation_jobs
-from app.fujin_local_schema import LocalDataset, LocalDatasetGenerationJob, migrate
+from app.provider_materializer import normalized_profile, process_generation_jobs
+from app.provider_schema import LocalDataset, LocalDatasetGenerationJob, migrate
 
 
 def test_local_materializer_creates_durable_ready_snapshot(tmp_path):

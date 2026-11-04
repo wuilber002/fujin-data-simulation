@@ -1,7 +1,7 @@
-"""Durable physical-dataset materializer owned by Fujin LOCAL.
+"""Durable physical-dataset materializer owned by Fujin Provider.
 
 This worker is deliberately separate from the S3/OCI provider process.  It is
-the only LOCAL component with a writable payload-volume mount; the provider
+the only provider component with a writable payload-volume mount; the provider
 serves the published snapshot through its read-only mount.
 """
 
@@ -18,7 +18,7 @@ import time
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
 
-from app.fujin_local_schema import (
+from app.provider_schema import (
     LocalDataset,
     LocalDatasetGenerationJob,
     migrate,
@@ -38,12 +38,12 @@ def utcnow() -> datetime:
 
 def payload_root(environ: dict[str, str] | None = None) -> Path:
     values = os.environ if environ is None else environ
-    root = Path(values.get("FUJIN_LOCAL_PAYLOAD_ROOT", "/var/lib/fujin-local/payloads"))
+    root = Path(values.get("FUJIN_PROVIDER_PAYLOAD_ROOT", "/var/lib/fujin-provider/payloads"))
     if not root.is_absolute():
-        raise LocalMaterializationError("Fujin LOCAL payload root must be absolute")
+        raise LocalMaterializationError("Fujin Provider payload root must be absolute")
     root.mkdir(parents=True, exist_ok=True)
     if root.is_symlink():
-        raise LocalMaterializationError("Fujin LOCAL payload root must not be a symlink")
+        raise LocalMaterializationError("Fujin Provider payload root must not be a symlink")
     return root.resolve(strict=True)
 
 
@@ -141,9 +141,9 @@ def _remove_owned_dataset(root: Path, dataset: LocalDataset) -> None:
 
 
 def generation_engine(database_url: str):
-    """Use the same SQLite writer contract as the Fujin LOCAL API."""
+    """Use the same SQLite writer contract as the Fujin Provider API."""
     sqlite_database = database_url.startswith("sqlite")
-    busy_timeout_seconds = max(1, int(os.environ.get("FUJIN_LOCAL_SQLITE_BUSY_TIMEOUT_SECONDS", "30")))
+    busy_timeout_seconds = max(1, int(os.environ.get("FUJIN_PROVIDER_SQLITE_BUSY_TIMEOUT_SECONDS", "30")))
     engine = create_engine(
         database_url,
         pool_pre_ping=True,
@@ -252,4 +252,4 @@ def run_forever(database_url: str, interval_seconds: float = 0.25) -> None:
 
 
 if __name__ == "__main__":
-    run_forever(os.environ["FUJIN_LOCAL_DATABASE_URL"])
+    run_forever(os.environ["FUJIN_PROVIDER_DATABASE_URL"])

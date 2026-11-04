@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preview or apply the AWS UTC-midnight repair to Fujin LOCAL restores."""
+"""Preview or apply the AWS UTC-midnight repair to Fujin Provider restores."""
 
 from __future__ import annotations
 
@@ -11,13 +11,13 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.fujin_local_schema import repair_restore_expiries
+from app.provider_schema import repair_restore_expiries
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--database-url", default=os.environ.get(
-        "FUJIN_LOCAL_DATABASE_URL", "sqlite+pysqlite:////tmp/fujin-local.db"
+        "FUJIN_PROVIDER_DATABASE_URL", "sqlite+pysqlite:////tmp/fujin-provider.db"
     ))
     parser.add_argument("--apply", action="store_true", help="persist the repair; default is dry-run")
     args = parser.parse_args()

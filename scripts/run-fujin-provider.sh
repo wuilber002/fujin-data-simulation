@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# LOCAL data endpoints use an internal CA.  The certificate is generated once
+# provider data endpoints use an internal CA.  The certificate is generated once
 # into the durable Fujin volume and clients mount only the public CA file.
-cert_root="${FUJIN_LOCAL_TLS_DIRECTORY:-/var/lib/fujin-local/tls}"
-cert_file="$cert_root/fujin-local.crt"
-key_file="$cert_root/fujin-local.key"
-aws_region="${FUJIN_LOCAL_AWS_REGION:-${FUJIN_LOCAL_REGION:-us-east-1}}"
-oci_region="${FUJIN_LOCAL_OCI_REGION:-sa-saopaulo-1}"
-endpoint_id="${FUJIN_LOCAL_VPCE_ID:-vpce-fujin-local}"
+cert_root="${FUJIN_PROVIDER_TLS_DIRECTORY:-/var/lib/fujin-provider/tls}"
+cert_file="$cert_root/fujin-provider.crt"
+key_file="$cert_root/fujin-provider.key"
+aws_region="${FUJIN_PROVIDER_AWS_REGION:-${FUJIN_PROVIDER_REGION:-us-east-1}}"
+oci_region="${FUJIN_PROVIDER_OCI_REGION:-sa-saopaulo-1}"
+endpoint_id="${FUJIN_PROVIDER_VPCE_ID:-vpce-fujin-provider}"
 mkdir -p "$cert_root"
 chmod 0700 "$cert_root"
 
@@ -39,8 +39,8 @@ fi
 
 ## Private AWS and OCI endpoint URLs intentionally omit a port, matching the
 ## public SDK contracts.  Serve TLS on the standard HTTPS port inside the
-## isolated provider network so boto3 and the OCI SDK need no LOCAL-specific
+## isolated provider network so boto3 and the OCI SDK need no provider-specific
 ## endpoint alteration.
-exec python3 -m uvicorn app.fujin_local:app --host 0.0.0.0 --port 443 \
+exec python3 -m uvicorn app.provider:app --host 0.0.0.0 --port 443 \
   --ssl-certfile "$cert_file" --ssl-keyfile "$key_file" \
   --timeout-graceful-shutdown 90

@@ -1,7 +1,7 @@
-# Aceite operacional — Fujin LOCAL
+# Aceite operacional — Fujin Provider
 
 Em uma VM Oracle Linux provisionada, execute após criar o perfil OCI LOCAL e
-chamar `sudo /usr/local/sbin/s3-oci-start-fujin-local-runtime`. Em ambiente
+chamar `sudo /usr/local/sbin/s3-oci-start-fujin-provider-runtime`. Em ambiente
 de desenvolvimento, o equivalente é `docker compose --profile local up -d`.
 Use sempre o túnel SSH local. O Raijin permanece em `REAL`; não há seletor
 LOCAL na UI Raijin.
@@ -11,19 +11,19 @@ LOCAL na UI Raijin.
 > `subnet_ocid`, `image_ocid`, `ssh_public_key` e
 > `secrets_compartment_ocid`. Este repositório não contém esses valores nem
 > estado de uma VM existente.
-> Use `terraform/orm/fujin-local-acceptance.tfvars.example` como contrato
+> Use `terraform/orm/fujin-provider-acceptance.tfvars.example` como contrato
 > inicial e mantenha a cópia preenchida fora do Git.
 
 ## Pré-condições
 
 1. Confirme que o host provisionou o Secret local
-   `/etc/s3-oci-migration/secrets/fujin_local_admin_token` (modo `0600`) e
+   `/etc/s3-oci-migration/secrets/provider_admin_token` (modo `0600`) e
    abra `http://127.0.0.1:8080/fujin/`. Informe o token somente na console e
    confirme saúde, DNS/TLS e auditoria.
 2. Confirme o volume dedicado em
-   `/var/lib/s3-oci-migration/fujin-payloads`. Pela console **Fujin LOCAL**,
+   `/var/lib/s3-oci-migration/fujin-payloads`. Pela console **Fujin Provider**,
    solicite a geração de um dataset com nome, seed, perfil, quantidade e quota.
-   Não informe nem importe paths do host: o `fujin-local-materializer` cria os
+   Não informe nem importe paths do host: o `fujin-provider-materializer` cria os
    arquivos, o manifesto e os SHA-256 de modo durável; só um dataset `READY`
    pode ser associado ao bucket S3 LOCAL. O provedor S3 o monta somente para
    leitura. Crie também um bucket OCI LOCAL independente.
@@ -34,7 +34,7 @@ LOCAL na UI Raijin.
 3. Gere o perfil OCI LOCAL isolado, preservando o perfil REAL:
 
    ```bash
-   sudo /usr/local/sbin/configure-fujin-local-oci-runtime \
+   sudo /usr/local/sbin/configure-fujin-provider-oci-runtime \
      --source /etc/s3-oci-migration/oci-runtime.json \
      --output /etc/s3-oci-migration/oci-runtime-local.json \
      --namespace local
@@ -42,7 +42,7 @@ LOCAL na UI Raijin.
 
 4. Copie o pacote sintético para o Vault sem alterar seu schema. Na conexão
    AWS do Raijin configure STS/S3/S3 Control privados, `virtual` e a CA
-   `/etc/fujin-local-ca/fujin-local.crt`; configure o endpoint OCI privado no
+   `/etc/fujin-provider-ca/fujin-provider.crt`; configure o endpoint OCI privado no
    runtime como `https://oci.us-east-1.fujin.internal`, usando a mesma CA.
 
 ## Aceite E2E
@@ -56,10 +56,10 @@ LOCAL na UI Raijin.
    console Fujin.
 4. Execute relatório e Deep Audit no Raijin; confirme leitura dos bytes
    físicos referenciados e request IDs correlacionáveis no Fujin.
-5. Com multipart/restore ativo, reinicie somente `fujin-local`; confirme
+5. Com multipart/restore ativo, reinicie somente `fujin-provider`; confirme
    recuperação por catálogo persistente, retomada segura e ausência de objeto
    OCI permanente para upload abortado. Em ensaio separado, interrompa e
-   reinicie `fujin-local-materializer` durante uma geração: o job deve retomar
+   reinicie `fujin-provider-materializer` durante uma geração: o job deve retomar
    sem publicar arquivos parciais e só concluir como `READY` após o manifesto.
 6. Tente excluir dataset/bucket com referências/operacões ativas e confirme
    bloqueio. Após revogar buckets e finalizar operações, confirme que a API

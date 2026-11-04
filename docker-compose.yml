@@ -1,11 +1,11 @@
 services:
-  fujin-local:
+  fujin-provider:
     build: .
     restart: unless-stopped
     environment:
-      FUJIN_LOCAL_DATABASE_URL: sqlite+pysqlite:////var/lib/fujin/catalog.db
-      FUJIN_LOCAL_PAYLOAD_ROOT: /var/lib/fujin/payloads
-      FUJIN_LOCAL_STAGING_ROOT: /var/lib/fujin/staging
+      FUJIN_PROVIDER_DATABASE_URL: sqlite+pysqlite:////var/lib/fujin/catalog.db
+      FUJIN_PROVIDER_PAYLOAD_ROOT: /var/lib/fujin/payloads
+      FUJIN_PROVIDER_STAGING_ROOT: /var/lib/fujin/staging
     ports:
       - "${FUJIN_BIND_HOST:-127.0.0.1}:${FUJIN_BIND_PORT:-8090}:8080"
     volumes:
@@ -19,15 +19,15 @@ services:
   fujin-materializer:
     build: .
     restart: unless-stopped
-    command: ["python3", "-m", "app.fujin_local_materializer"]
+    command: ["python3", "-m", "app.provider_materializer"]
     environment:
-      FUJIN_LOCAL_DATABASE_URL: sqlite+pysqlite:////var/lib/fujin/catalog.db
-      FUJIN_LOCAL_PAYLOAD_ROOT: /var/lib/fujin/payloads
-      FUJIN_LOCAL_STAGING_ROOT: /var/lib/fujin/staging
+      FUJIN_PROVIDER_DATABASE_URL: sqlite+pysqlite:////var/lib/fujin/catalog.db
+      FUJIN_PROVIDER_PAYLOAD_ROOT: /var/lib/fujin/payloads
+      FUJIN_PROVIDER_STAGING_ROOT: /var/lib/fujin/staging
     volumes:
       - fujin-data:/var/lib/fujin
     depends_on:
-      fujin-local:
+      fujin-provider:
         condition: service_healthy
 
   fujin-simulator:

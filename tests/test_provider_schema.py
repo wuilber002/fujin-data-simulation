@@ -4,11 +4,11 @@ from pathlib import Path
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
-from app.fujin_local_schema import LocalRestore, migrate, repair_restore_expiries
+from app.provider_schema import LocalRestore, migrate, repair_restore_expiries
 
 
 def test_local_catalogue_is_separate_from_simulation_and_raijin(tmp_path):
-    url = f"sqlite+pysqlite:///{Path(tmp_path) / 'fujin-local.db'}"
+    url = f"sqlite+pysqlite:///{Path(tmp_path) / 'fujin-provider.db'}"
     migrate(url)
     names = set(inspect(create_engine(url)).get_table_names())
     assert {"local_datasets", "local_dataset_generation_jobs", "local_s3_buckets", "local_oci_buckets", "local_audit_events", "local_cloud_provider_states"} <= names

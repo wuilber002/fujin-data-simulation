@@ -333,11 +333,11 @@ class SimulationEngine:
         normalized_prefixes = normalized_prefixes or ["simulation"]
         payload_model = payload_model.strip().upper()
         # Simulation is intentionally logical-only. Physical datasets belong
-        # to Fujin LOCAL, where their lifecycle is durable and isolated from
+        # to Fujin Provider, where their lifecycle is durable and isolated from
         # the virtual clock. Keep this guard even for internal callers so no
         # API refactor can accidentally reintroduce host I/O here.
         if payload_model != "VIRTUAL" or payload_dataset_id or physical_object_indices:
-            raise ValueError("SIMULATION accepts deterministic VIRTUAL payloads only; use Fujin LOCAL for physical datasets")
+            raise ValueError("SIMULATION accepts deterministic VIRTUAL payloads only; use Fujin Provider for physical datasets")
         selected_indices: list[int] = []
 
         with self.store.sessions() as session:

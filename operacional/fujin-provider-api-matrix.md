@@ -1,4 +1,4 @@
-# Matriz de contrato — Fujin LOCAL
+# Matriz de contrato — Fujin Provider
 
 **Estado:** inventário inicial, produzido a partir dos consumidores atuais em
 `app/real_worker.py` e `app/main.py`. A implementação de cada rota somente

@@ -1,4 +1,4 @@
-"""Persistent, isolated catalogue for Fujin LOCAL.
+"""Persistent, isolated catalogue for Fujin Provider.
 
 LOCAL must never reuse the ``sim_*`` execution state.  This module owns only
 the provider-side catalogue; it deliberately does not import consumer models or
@@ -40,7 +40,7 @@ class LocalSchemaRevision(LocalBase):
 
 
 class LocalProviderState(LocalBase):
-    """The explicit LOCAL data-plane switch, owned solely by Fujin.
+    """The explicit provider data-plane switch, owned solely by Fujin.
 
     No consumer process reads this table.  Keeping the provider disabled
     until an administrator enables it makes accidental use of synthetic
@@ -82,7 +82,7 @@ class LocalDataset(LocalBase):
 
 
 class LocalDatasetGenerationJob(LocalBase):
-    """Durable, Fujin-owned materialization work for a LOCAL dataset.
+    """Durable, Fujin-owned materialization work for a provider dataset.
 
     The S3 provider only ever mounts the resulting source read-only.  A
     separate LOCAL control worker owns writes and advances exactly one file at

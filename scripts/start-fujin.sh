@@ -20,23 +20,23 @@ replace_container() {
   podman rm -f "$name" >/dev/null 2>&1 || true
 }
 
-replace_container fujin-local
+replace_container fujin-provider
 replace_container fujin-materializer
 replace_container fujin-simulator
 
-podman run -d --name fujin-local --restart unless-stopped --network "$network" \
+podman run -d --name fujin-provider --restart unless-stopped --network "$network" \
   -p "${local_host}:${local_port}:8080" -v "${data_dir}:/var/lib/fujin:Z" \
-  -e FUJIN_LOCAL_DATABASE_URL=sqlite+pysqlite:////var/lib/fujin/catalog.db \
-  -e FUJIN_LOCAL_PAYLOAD_ROOT=/var/lib/fujin/payloads \
-  -e FUJIN_LOCAL_STAGING_ROOT=/var/lib/fujin/staging \
+  -e FUJIN_PROVIDER_DATABASE_URL=sqlite+pysqlite:////var/lib/fujin/catalog.db \
+  -e FUJIN_PROVIDER_PAYLOAD_ROOT=/var/lib/fujin/payloads \
+  -e FUJIN_PROVIDER_STAGING_ROOT=/var/lib/fujin/staging \
   "$image" >/dev/null
 
 podman run -d --name fujin-materializer --restart unless-stopped --network "$network" \
   -v "${data_dir}:/var/lib/fujin:Z" \
-  -e FUJIN_LOCAL_DATABASE_URL=sqlite+pysqlite:////var/lib/fujin/catalog.db \
-  -e FUJIN_LOCAL_PAYLOAD_ROOT=/var/lib/fujin/payloads \
-  -e FUJIN_LOCAL_STAGING_ROOT=/var/lib/fujin/staging \
-  "$image" python3 -m app.fujin_local_materializer >/dev/null
+  -e FUJIN_PROVIDER_DATABASE_URL=sqlite+pysqlite:////var/lib/fujin/catalog.db \
+  -e FUJIN_PROVIDER_PAYLOAD_ROOT=/var/lib/fujin/payloads \
+  -e FUJIN_PROVIDER_STAGING_ROOT=/var/lib/fujin/staging \
+  "$image" python3 -m app.provider_materializer >/dev/null
 
 podman run -d --name fujin-simulator --restart unless-stopped --network "$network" \
   -p "${simulator_host}:${simulator_port}:8091" -v "${data_dir}:/var/lib/fujin:Z" \
@@ -56,7 +56,7 @@ wait_ready() {
   return 1
 }
 
-wait_ready fujin-local 8080
+wait_ready fujin-provider 8080
 wait_ready fujin-simulator 8091
 
 echo "Fujin console: http://${local_host}:${local_port}/console"
