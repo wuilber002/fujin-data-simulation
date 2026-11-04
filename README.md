@@ -1,16 +1,38 @@
 # Fujin Data Simulation
 
-Fujin is an independent local cloud laboratory. It owns deterministic datasets,
-virtual S3/Glacier and OCI Object Storage behavior, restore policies, fault
-profiles, payload materialization, and the related administrative APIs.
+Fujin is an independent private-cloud laboratory. It owns deterministic
+datasets, simulated S3/Glacier and OCI Object Storage behavior, restore
+policies, fault profiles, payload materialization and its administrative API.
 
-It does not contain Raijin projects, waves, queues, workers, credentials, or
-operational databases. Raijin consumes Fujin only through private provider
-endpoints and normal AWS/OCI connection settings.
+It has its own catalog and lifecycle. A consumer such as Raijin reaches Fujin
+only through the normal AWS and OCI protocol contracts; Fujin never imports a
+consumer's queue, workers, credentials or database.
 
-## Migration baseline
+## Local development
 
-This first repository revision preserves the Fujin implementation that was
-previously co-located with Raijin. The next commits replace the transitional
-Raijin-named runtime variables and compose topology with Fujin-only names and
-publish the provider contract independently.
+Requirements: Docker Compose or Podman Compose, with the service bound to
+loopback unless it is protected by an equivalent private network boundary.
+
+```bash
+docker compose up --build -d
+curl -fsS http://127.0.0.1:8090/healthz
+curl -fsS http://127.0.0.1:8091/healthz
+```
+
+The Fujin administration console is available at
+`http://127.0.0.1:8090/console`. Persistent catalogues and generated payloads
+are stored only in the `fujin-data` volume.
+
+For validation without containers:
+
+```bash
+PYTHONPATH=. pytest -q -p no:cacheprovider
+```
+
+## Integration boundary
+
+Before connecting a consumer, create and validate a dataset, create the
+simulated source and destination buckets, then enable the provider endpoints.
+Use the generated CA and private endpoint profile exposed by the Fujin console.
+The consumer must be deployed separately and must not share Fujin's storage
+volume or database.

@@ -466,150 +466,30 @@ def test_local_oci_runtime_profile_keeps_real_configuration_isolated(tmp_path):
     assert json.loads(source.read_text(encoding="utf-8"))["object_storage_namespace"] == "real"
 
 
-def test_local_compose_isolates_the_fujin_materializer_from_the_read_only_provider():
+def test_compose_keeps_the_materializer_private_from_the_provider_api():
     compose = Path("docker-compose.yml").read_text(encoding="utf-8")
-    assert "- /var/lib/raijin-data-migration/fujin-payloads:/var/lib/fujin-local/payloads:ro" in compose
-    materializer = compose.split("  fujin-local-materializer:\n", 1)[1].split("  fujin-local-dns:\n", 1)[0]
+    provider = compose.split("  fujin-local:\n", 1)[1].split("  fujin-materializer:\n", 1)[0]
+    materializer = compose.split("  fujin-materializer:\n", 1)[1].split("  fujin-simulator:\n", 1)[0]
     assert 'command: ["python3", "-m", "app.fujin_local_materializer"]' in materializer
-    assert "- /var/lib/raijin-data-migration/fujin-payloads:/var/lib/fujin-local/payloads:rw" in materializer
+    assert "FUJIN_LOCAL_PAYLOAD_ROOT" in provider
+    assert "FUJIN_LOCAL_PAYLOAD_ROOT" in materializer
     assert "ports:" not in materializer
+    assert "raijin" not in compose.lower()
 
 
-def test_local_compose_exposes_only_the_loopback_ui_gateway():
+def test_compose_exposes_only_fujin_services_on_loopback():
     compose = Path("docker-compose.yml").read_text(encoding="utf-8")
-    fujin = compose.split("  fujin-local:\n", 1)[1].split("  fujin-local-dns:\n", 1)[0]
-    local_app = compose.split("  local-app:\n", 1)[1].split("  local-ui-gateway:\n", 1)[0]
-    gateway = compose.split("  local-ui-gateway:\n", 1)[1].split("  simulator:\n", 1)[0]
-    assert "ports:" not in fujin and "ports:" not in local_app
-    assert 'ports: ["${RAIJIN_WEB_BIND_HOST:-127.0.0.1}:${RAIJIN_WEB_BIND_PORT:-1604}:8080"]' in gateway
-    assert "fujin-local-data:\n    internal: true" in compose
-    assert "fujin-local-ui:\n    internal: true" in compose
-    assert "networks: [fujin-local-ui, default, fujin-local-data]" in compose
-    assert "networks: [default, fujin-local-ui]" in gateway
+    assert '${FUJIN_BIND_HOST:-127.0.0.1}:${FUJIN_BIND_PORT:-8090}:8080' in compose
+    assert '${FUJIN_SIMULATOR_BIND_HOST:-127.0.0.1}:${FUJIN_SIMULATOR_BIND_PORT:-8091}:8091' in compose
+    assert "fujin-data:/var/lib/fujin" in compose
+    assert "raijin" not in compose.lower()
 
 
-def test_local_ui_gateway_resolves_provider_aliases_after_container_restart():
-    config = Path("docker/nginx-local-ui.conf").read_text(encoding="utf-8")
-    launcher = Path("docker/run-local-ui-gateway.sh").read_text(encoding="utf-8")
-    assert "resolver __FUJIN_DNS_RESOLVER__ valid=10s" in config
-    assert "$fujin_local_upstream" in config
-    assert "$raijin_local_upstream" in config
-    assert "rewrite ^/raijin/(.*)$ /$1 break;" in config
-    assert "proxy_pass http://$raijin_local_upstream:8080;" in config
-    assert "location ~ ^/api/sources/[0-9]+/validate-destination$" in config
-    assert "proxy_read_timeout 10m;" in config
-    assert "location = /favicon.ico" in config
-    assert "/static/favicon.svg" in config
-    assert Path("app/static/favicon.svg").is_file()
-    assert "proxy_ssl_server_name on" in config
-    assert "rewrite ^/fujin/api/(.*)$ /api/$1 break;" in config
-    assert "location /fujin/static/" in config
-    assert "rewrite ^/fujin/static/(.*)$ /static/$1 break;" in config
-    assert "proxy_pass https://$fujin_local_upstream:443;" in config
-    assert "awk '/^nameserver" in launcher
-    assert "__FUJIN_DNS_RESOLVER__" in launcher
-
-
-def test_oracle_linux_podman_launcher_keeps_raijin_real_and_the_data_plane_private():
-    launcher = Path("scripts/start-fujin-local-runtime.sh").read_text(encoding="utf-8")
-    assert "RAIJIN_OPERATION_MODE=REAL" in launcher
-    assert "RAIJIN_OPERATION_MODE=LOCAL" not in launcher
-    assert "podman network create --internal --subnet 172.30.0.0/24" in launcher
-    assert 'podman network connect --alias fujin-local "$ui_network" raijin-fujin-local' in launcher
-    assert "raijin-stop-runtime" in launcher and "docker.io/library/postgres:16-alpine" in launcher
-    assert 'mountpoint -q "$data_root/fujin-payloads"' in launcher
-    assert 'source "$install_root/scripts/web-bind.sh"' in launcher
-    assert '-p "$RAIJIN_WEB_BIND_PUBLISH"' in launcher
-    assert "raijin-fujin-local" in launcher and "fujin-payloads:/var/lib/fujin-local/payloads:ro" in launcher
-    assert "raijin-fujin-local-materializer" in launcher
-    assert 'fujin-local:/var/lib/fujin-local:z' in launcher
-    assert 'fujin-local:/var/lib/fujin-local:Z' not in launcher
-    assert 'fujin-payloads:/var/lib/fujin-local/payloads:rw,z' in launcher
-    assert '"$image" python3 -m app.fujin_local_materializer' in launcher
-    assert 'podman network connect --alias local-app "$ui_network" raijin-app' in launcher
-    assert '--network "$main_network" -p "$RAIJIN_WEB_BIND_PUBLISH"' in launcher
-    assert 'ui_resolver_ip=' in launcher and 'gateway_resolv_conf=' in launcher
-    assert 'FUJIN_UI_RESOLVER="$ui_resolver_ip"' in launcher
-    assert 'FUJIN_UI_RESOLVER:-' in Path("docker/run-local-ui-gateway.sh").read_text(encoding="utf-8")
-    bootstrap = Path("scripts/bootstrap.sh").read_text(encoding="utf-8")
-    assert "raijin-start-fujin-local-runtime" in bootstrap
-    assert "deployment-profile" in bootstrap
-    assert 'deployment_profile" == LOCAL' in bootstrap
-    assert '/usr/local/sbin/raijin-start-fujin-local-runtime' in bootstrap
-    assert '/usr/local/sbin/raijin-start-runtime "$operation_mode"' in bootstrap
-    assert 'printf \'STANDARD\\n\'' in bootstrap
-    assert '"$install_root/VERSION"' in bootstrap
-    assert 'basename "$(readlink -f "$install_root")"' in bootstrap
-    assert 'release_image="localhost/raijin-data-migration:$build_revision"' in bootstrap
-    assert "'{{.ImageName}}'" in bootstrap
-    assert '!= "$release_image"' in bootstrap
-    assert 'podman build --no-cache' in bootstrap
-    assert 'RAIJIN_IMAGE="$release_image" /usr/local/sbin/raijin-start-fujin-local-runtime' in bootstrap
-    standard_launcher = Path("scripts/start-runtime.sh").read_text(encoding="utf-8")
-    assert 'image="${RAIJIN_IMAGE:-localhost/raijin-data-migration:latest}"' in standard_launcher
-    updater = Path("scripts/update-fujin-local-raijin-runtime.sh").read_text(encoding="utf-8")
-    assert "identity['raijin_build_revision']" in updater
-    assert "expected_revision" in updater
-    assert 'candidate_name="raijin-app-candidate"' in updater
-    assert 'start_app "$candidate_name" "$target_image"' in updater
-    assert 'podman rename "$candidate_name" raijin-app' in updater
-    assert 'podman exec raijin-local-ui-gateway nginx -s reload' in updater
-    assert "validate_release_images" in updater
-    assert '[[ "$actual" == "$expected" ]]' in updater
-    assert "no automatic rollback is configured" in updater
-    assert "abort_update()" in updater
-    assert "active transfer/lease record(s) remain" in updater
-    config = Path("docker/nginx-local-ui.conf").read_text(encoding="utf-8")
-    assert "proxy_next_upstream error timeout http_502 http_503 http_504" in config
-    assert "proxy_next_upstream_tries 4" in config
-    candidate = updater.index('start_app "$candidate_name" "$target_image"')
-    retire_old = updater.index('podman stop -t "$stop_timeout" --ignore raijin-app')
-    promote = updater.index('podman rename "$candidate_name" raijin-app')
-    assert candidate < retire_old < promote
-    coredns = Path("docker/fujin-local.Corefile").read_text(encoding="utf-8")
-    assert "forward . /etc/resolv.conf" in coredns
-    assert "forward . 127.0.0.11" not in coredns
-
-
-def test_oracle_linux_podman_launcher_executes_the_private_topology_in_dry_run(tmp_path):
-    install = tmp_path / "release"; (install / "docker").mkdir(parents=True)
-    (install / "docker" / "fujin-local.Corefile").write_text(".:53 {}", encoding="utf-8")
-    (install / "docker" / "nginx-local-ui.conf").write_text("server {}", encoding="utf-8")
-    (install / "scripts").mkdir()
-    (install / "scripts" / "web-bind.sh").write_text(
-        Path("scripts/web-bind.sh").read_text(encoding="utf-8"), encoding="utf-8"
-    )
-    (install / "scripts" / "console-auth-lifecycle.sh").write_text(
-        Path("scripts/console-auth-lifecycle.sh").read_text(encoding="utf-8"), encoding="utf-8"
-    )
-    data = tmp_path / "data"; (data / "fujin-payloads").mkdir(parents=True)
-    secret = tmp_path / "secrets"; secret.mkdir(); (secret / "fujin_local_admin_token").write_text("token", encoding="utf-8")
-    runtime = tmp_path / "oci-local.json"; runtime.write_text("{}", encoding="utf-8")
-    fake_bin = tmp_path / "bin"; fake_bin.mkdir(); log = tmp_path / "podman.log"
-    (fake_bin / "podman").write_text("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$PODMAN_LOG\"\ncase \"$1 $2\" in 'container exists'|'network exists') exit 1;; esac\nexit 0\n", encoding="utf-8")
-    (fake_bin / "mountpoint").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    (fake_bin / "podman").chmod(0o755); (fake_bin / "mountpoint").chmod(0o755)
-    env = os.environ | {"PATH": f"{fake_bin}:{os.environ['PATH']}", "PODMAN_LOG": str(log),
-                        "RAIJIN_INSTALL_ROOT": str(install), "RAIJIN_DATA_ROOT": str(data),
-                        "RAIJIN_SECRET_ROOT": str(secret), "RAIJIN_LOCAL_OCI_RUNTIME_CONFIG": str(runtime)}
-    run = subprocess.run(["bash", "scripts/start-fujin-local-runtime.sh"], env=env, text=True, capture_output=True, check=True)
-    commands = log.read_text(encoding="utf-8")
-    assert "LOCAL private cloud is ready" in run.stdout
-    assert "network create --internal --subnet 172.30.0.0/24" in commands
-    assert "--name raijin-fujin-local" in commands
-    assert "--name raijin-fujin-local-materializer" in commands
-    assert "--name raijin-app" in commands and "RAIJIN_OPERATION_MODE=REAL" in commands
-    assert "/run/platform-status:ro,z" in commands
-    assert "--name raijin-local-ui-gateway" in commands and "-p 127.0.0.1:1604:8080" in commands
-
-
-def test_local_administration_uses_the_ssh_tunnel_boundary_not_a_browser_token(monkeypatch):
+def test_local_administration_does_not_accept_an_obsolete_browser_token(monkeypatch):
     monkeypatch.setenv("FUJIN_LOCAL_ADMIN_TOKEN", "obsolete-token")
     import app.fujin_local as module
     module = importlib.reload(module)
     assert module.require_admin(_request("GET", "/api/local/overview")) is None
-    assert "FUJIN_LOCAL_ADMIN_TOKEN_FILE" not in Path("scripts/start-fujin-local-runtime.sh").read_text(encoding="utf-8")
-    assert "fujin_local_admin_token" not in Path("scripts/bootstrap.sh").read_text(encoding="utf-8")
 
 
 def test_batch_restore_retention_reads_boto3_expiration_in_days_xml():
