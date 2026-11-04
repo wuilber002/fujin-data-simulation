@@ -19,6 +19,7 @@ curl -fsS http://127.0.0.1:8090/healthz
 curl -fsS http://127.0.0.1:8091/healthz
 curl -fsS http://127.0.0.1:8090/readyz
 curl -fsS http://127.0.0.1:8091/readyz
+curl -fsS http://127.0.0.1:8090/v1/provider/handshake
 ```
 
 The Fujin administration console is available at
@@ -60,3 +61,8 @@ simulated source and destination buckets, then enable the provider endpoints.
 Use the generated CA and private endpoint profile exposed by the Fujin console.
 The consumer must be deployed separately and must not share Fujin's storage
 volume or database.
+
+Antes de criar uma conexão AWS/OCI, um consumidor deve consultar
+`GET /v1/provider/handshake`. O contrato é versionado e contém somente
+capacidades e perfis de endpoint; nunca credenciais, caminhos locais ou
+informações do catálogo.

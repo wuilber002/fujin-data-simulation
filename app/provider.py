@@ -41,6 +41,8 @@ from starlette.requests import ClientDisconnect
 from app.aws_restore_semantics import s3_restore_expiry, utc_datetime
 from app.provider_schema import LocalAuditEvent, LocalBatchJob, LocalCloudProviderState, LocalControlObject, LocalDataset, LocalDatasetGenerationJob, LocalMultipartPart, LocalMultipartUpload, LocalOciBucket, LocalOciObject, LocalProviderState, LocalRestore, LocalS3Bucket, LocalStsSession, migrate
 from app.provider_materializer import LocalMaterializationError, normalized_profile
+from app.provider_contract import ProviderHandshake
+from app.runtime_context import FUJIN_BUILD_REVISION, FUJIN_SERVICE_VERSION
 
 
 DATABASE_URL = os.environ.get("FUJIN_PROVIDER_DATABASE_URL", "sqlite+pysqlite:////tmp/fujin-provider.db")
@@ -1123,7 +1125,7 @@ async def local_data_plane_guard(request: Request, call_next):
     The admin surface remains reachable to provision and inspect resources;
     no request ever reaches Raijin to toggle this state.
     """
-    administrative_paths = {"/healthz", "/readyz", "/console", "/docs", "/openapi.json", "/redoc"}
+    administrative_paths = {"/healthz", "/readyz", "/v1/provider/handshake", "/console", "/docs", "/openapi.json", "/redoc"}
     path = request.url.path
     if (path in administrative_paths or path.startswith("/api/local/")
             or path.startswith("/static/")):
@@ -1275,6 +1277,39 @@ def readyz() -> dict:
     except Exception as error:
         raise HTTPException(503, "Fujin provider is not ready") from error
     return {"status": "ready", "service": "fujin-provider"}
+
+
+def private_endpoint_profile() -> dict[str, str]:
+    """Return deployment data only; credentials are never part of discovery."""
+    return {
+        "region": AWS_PROVIDER_REGION,
+        "aws_region": AWS_PROVIDER_REGION,
+        "oci_region": OCI_PROVIDER_REGION,
+        "sts_endpoint_url": f"https://sts.{AWS_PROVIDER_REGION}.fujin.internal",
+        "s3_endpoint_pattern": f"https://<bucket>.vpce-fujin-provider.s3.{AWS_PROVIDER_REGION}.fujin.internal",
+        "s3control_endpoint_url": f"https://control.vpce-fujin-provider.s3.{AWS_PROVIDER_REGION}.fujin.internal",
+        "oci_object_storage_endpoint_url": f"https://oci.{OCI_PROVIDER_REGION}.fujin.internal",
+    }
+
+
+@app.get("/v1/provider/handshake", response_model=ProviderHandshake)
+def provider_handshake() -> ProviderHandshake:
+    """Expose a versioned, read-only contract before an SDK is configured."""
+    return ProviderHandshake(
+        service_version=FUJIN_SERVICE_VERSION,
+        build_revision=FUJIN_BUILD_REVISION,
+        ready=True,
+        capabilities=[
+            "private-aws-sts-v1",
+            "private-s3-glacier-v1",
+            "private-s3-control-v1",
+            "private-oci-object-storage-v1",
+            "representative-datasets-v1",
+            "durable-restore-state-v1",
+            "durable-multipart-v1",
+        ],
+        endpoint_profile=private_endpoint_profile(),
+    )
 
 
 @app.get("/n")
@@ -1681,13 +1716,7 @@ def overview(request: Request, session: Session = Depends(get_session)) -> dict:
         # Raijin receives them through its normal generic connection/runtime
         # configuration and therefore has no knowledge of Fujin/LOCAL.
         "private_endpoint_profile": {
-            "region": AWS_PROVIDER_REGION,
-            "aws_region": AWS_PROVIDER_REGION,
-            "oci_region": OCI_PROVIDER_REGION,
-            "sts_endpoint_url": f"https://sts.{AWS_PROVIDER_REGION}.fujin.internal",
-            "s3_endpoint_pattern": f"https://<bucket>.vpce-fujin-provider.s3.{AWS_PROVIDER_REGION}.fujin.internal",
-            "s3control_endpoint_url": f"https://control.vpce-fujin-provider.s3.{AWS_PROVIDER_REGION}.fujin.internal",
-            "oci_object_storage_endpoint_url": f"https://oci.{OCI_PROVIDER_REGION}.fujin.internal",
+            **private_endpoint_profile(),
             "tls_ca_bundle_path": PROVIDER_CA_BUNDLE_PATH,
         },
     }

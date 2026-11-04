@@ -1,12 +1,19 @@
 # Matriz de contrato — Fujin Provider
 
-**Estado:** inventário inicial, produzido a partir dos consumidores atuais em
-`app/real_worker.py` e `app/main.py`. A implementação de cada rota somente
-começa após teste do cliente SDK correspondente.
+**Estado:** contrato independente do Provider. A implementação de cada rota
+só evolui com teste do cliente SDK correspondente.
+
+## Descoberta do Provider
+
+| Rota | Contrato | Garantia |
+|---|---|---|
+| `GET /healthz` | processo acessível | não garante catálogo migrado. |
+| `GET /readyz` | prontidão operacional | valida catálogo e diretórios gerenciados. |
+| `GET /v1/provider/handshake` | `ProviderHandshake` v1 | publica identidade, revisão, capacidades e endpoints sem credenciais. |
 
 ## AWS
 
-| Consumidor Raijin | Serviço | Operação | Evidência de compatibilidade |
+| Consumidor | Serviço | Operação | Evidência de compatibilidade |
 |---|---|---|---|
 | Pre-check, readiness, workers | STS | `AssumeRole`, `GetCallerIdentity` | Credenciais temporárias e account ID retornados por Boto3. |
 | Discovery | S3 | `ListObjectsV2` | `Contents`, `NextContinuationToken`, storage class, ETag e `LastModified`. |
@@ -17,7 +24,7 @@ começa após teste do cliente SDK correspondente.
 
 ## OCI Object Storage
 
-| Consumidor Raijin | Operação | Evidência de compatibilidade |
+| Consumidor | Operação | Evidência de compatibilidade |
 |---|---|---|
 | Readiness/reconciliação | namespace, `ListObjects`, `HeadObject` | namespace, paginação, headers e metadados. |
 | Transferência direta | `PutObject` | tamanho, `opc-content-sha256`, metadata e ETag. |
@@ -28,11 +35,11 @@ começa após teste do cliente SDK correspondente.
 
 | Dependência | Motivo |
 |---|---|
-| OCI Vault | Raijin continua obtendo a Secret AWS pelo fluxo já existente. |
-| OCI Instance Principal/Identity | Raijin continua usando o signer normal; Fujin aplica allowlist privada na primeira versão. |
+| Cofre de segredos do consumidor | Credenciais AWS pertencem ao consumidor e não são armazenadas pelo Fujin. |
+| Identidade OCI do consumidor | O consumidor usa o seu próprio signer; Fujin pode aplicar allowlist privada. |
 
 ## Fora do contrato
 
 Qualquer rota AWS/OCI não listada acima deve retornar erro explícito e possuir
-request ID pesquisável na auditoria Fujin. Ela somente entra na matriz após um
-consumidor Raijin ser identificado.
+request ID pesquisável na auditoria Fujin. Ela só entra na matriz após um caso
+de uso de consumidor ter sido identificado e testado.

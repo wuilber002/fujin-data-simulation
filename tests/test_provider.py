@@ -92,6 +92,16 @@ def test_provider_readiness_confirms_catalogue_and_payload_paths(tmp_path, monke
     assert module.PAYLOAD_ROOT.is_dir() and module.STAGING_ROOT.is_dir()
 
 
+def test_provider_handshake_is_versioned_and_never_exposes_credentials():
+    import app.provider as module
+    handshake = module.provider_handshake().model_dump()
+    assert handshake["service"] == "fujin-provider"
+    assert handshake["ready"] is True
+    assert "private-s3-glacier-v1" in handshake["capabilities"]
+    assert handshake["endpoint_profile"]["s3_endpoint_pattern"].startswith("https://")
+    assert not any("secret" in key.lower() or "password" in key.lower() for key in handshake)
+
+
 def test_local_dataset_generation_is_queued_without_a_host_path(tmp_path, monkeypatch):
     monkeypatch.setenv("FUJIN_PROVIDER_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'generation.db'}")
     import app.provider as module

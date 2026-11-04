@@ -17,6 +17,7 @@ FUJIN_SERVICE_VERSION = os.environ.get("FUJIN_SERVICE_VERSION", "0.1.0").strip()
 FUJIN_BUILD_REVISION = os.environ.get("FUJIN_BUILD_REVISION", "development").strip() or "development"
 SIMULATOR_CONTRACT_VERSION = "2"
 SIMULATOR_SERVICE_VERSION = "0.1.0"
+PROVIDER_CONTRACT_VERSION = "1"
 
 
 class FujinConfigurationError(RuntimeError):
