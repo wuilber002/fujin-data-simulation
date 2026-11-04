@@ -38,6 +38,10 @@ O instalador usa Podman, mantém os dados em `/var/lib/fujin-data-simulation`
 e publica a console e o simulador somente em loopback. Não requer Terraform
 nem compartilha banco, volume ou processo com o consumidor.
 
+Em Oracle Linux/RHEL e Debian/Ubuntu, o instalador obtém automaticamente
+Podman, Git e curl se estiverem ausentes. Ao final, só informa sucesso depois
+de validar a prontidão do Provider e do Simulator.
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wuilber002/fujin-data-simulation/main/scripts/install-fujin.sh \
   | sudo bash
