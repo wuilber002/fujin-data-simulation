@@ -148,7 +148,7 @@ def test_simulator_api_exposes_versioned_end_to_end_data_path(tmp_path, monkeypa
         f"{base_url}/v1/cloud/destination/put-object",
         data=content,
         method="PUT",
-        headers={"X-Raijin-Metadata": metadata, "Content-Type": "application/octet-stream"},
+        headers={"X-Fujin-Metadata": metadata, "Content-Type": "application/octet-stream"},
     )
     with urlopen(upload_http_request) as response:
         uploaded_status = response.status

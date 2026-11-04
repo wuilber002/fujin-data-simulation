@@ -1,4 +1,4 @@
-/* Shared, dependency-free operational shell behaviours for Raijin. */
+/* Shared, dependency-free operational shell behaviours for Fujin. */
 window.OperationalShell=Object.freeze({
   startClock(target,{locale='pt-BR',withDate=true}={}){if(!target)return()=>{};const render=()=>{const now=new Date(),time=now.toLocaleTimeString(locale,{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});target.textContent=withDate?`${time} · ${now.toLocaleDateString(locale,{weekday:'long',day:'2-digit',month:'long',year:'numeric'})}`:time};render();const id=setInterval(render,1000);return()=>clearInterval(id)},
   createNavigator({buttons,views,onChange}={}){const list=[...(buttons||[])];const show=name=>{for(const button of list)button.classList.toggle('active',button.dataset.view===name);for(const view of views||[])view.classList.toggle('active',view.dataset.view===name);onChange?.(name)};for(const button of list)button.addEventListener('click',()=>show(button.dataset.view));return{show}},

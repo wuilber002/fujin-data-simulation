@@ -322,7 +322,7 @@ def test_local_console_exposes_only_local_administration_controls():
     assert "restore_random_variation_hours" in page and "random_variation_hours" in page
     assert "restore_gradual_min_hours" in page and "gradual_window_min_hours" in page
     assert "restore_gradual_max_hours" in page and "gradual_window_max_hours" in page
-    assert "raijin-e2e-destination-10tb" in page
+    assert "fujin-destination-10tb" in page
     assert "id='oci-private-region'" in page
     assert "name='configuration'" not in page
     assert "bucket_configuration" not in page
@@ -389,7 +389,7 @@ def test_local_console_has_fujin_operational_shell_and_cloud_views():
     assert "static/operational-shell.js?v=20260910-1" in page
     assert "restore-availability-fieldset" in page
     assert "s3NameLabel.childNodes[0].textContent='Nome do bucket'" in page
-    assert "s3NameInput.placeholder='raijin-e2e-10tb'" in page
+    assert "s3NameInput.placeholder='fujin-e2e-10tb'" in page
     shell = Path("app/static/operational-shell.js").read_text()
     assert "stabilizePointerClicks" in shell and "window.scrollTo" in shell
     assert "enableHelpTooltips" in shell and "operational-help-tooltip" in shell
@@ -1575,206 +1575,6 @@ def test_provider_errors_return_correlatable_s3_and_oci_request_ids(tmp_path, mo
     with module.SessionLocal() as session:
         assert len(module.audit_events(_request("GET", "/api/local/audit"), request_id=s3_error.headers["x-amz-request-id"], session=session)) == 1
         assert len(module.audit_events(_request("GET", "/api/local/audit"), request_id=oci_error.headers["opc-request-id"], session=session)) == 1
-
-
-def test_local_aws_contract_with_boto3(tmp_path, monkeypatch):
-    """Exercise STS and S3 using the same boto3 transport used by Raijin."""
-    root = Path(tmp_path) / "payloads"
-    payload = b"sdk-compatible-payload"
-    (root / "snapshot").mkdir(parents=True)
-    (root / "snapshot/object.bin").write_bytes(payload)
-    digest = hashlib.sha256(payload).hexdigest()
-    monkeypatch.setenv("FUJIN_LOCAL_DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'sdk.db'}")
-    monkeypatch.setenv("FUJIN_LOCAL_PAYLOAD_ROOT", str(root))
-    monkeypatch.setenv("FUJIN_LOCAL_STAGING_ROOT", str(Path(tmp_path) / "staging"))
-    # The private DNS name must reach the loopback provider directly, never an
-    # environment HTTP proxy.
-    for variable in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
-        monkeypatch.delenv(variable, raising=False)
-    import app.fujin_local as module
-    module = importlib.reload(module)
-    module.startup()
-    session = module.SessionLocal()
-    try:
-        admin = _request("POST", "/api/local/datasets")
-        dataset = _create_ready_dataset(module, admin, module.DatasetCreate(
-            name="sdk-dataset", snapshot_id="sdk-snapshot", repository_relative_path="snapshot", quota_bytes=len(payload),
-            manifest={"objects": [{"key": "object.bin", "relative_path": "snapshot/object.bin", "size_bytes": len(payload),
-                                   "sha256": digest, "etag": digest, "storage_class": "DEEP_ARCHIVE"}]},
-        ), session=session)
-        created = module.create_s3_bucket(admin, module.S3BucketCreate(name="sdk-source", dataset_id=dataset["id"], restore_policy={"delay_seconds": 0}), session=session)
-        bucket = session.get(module.LocalS3Bucket, created["id"])
-        assert module.activate_local_provider(_request("POST", "/api/local/provider/activate"), session)["enabled"] is True
-        listener = socket.socket(); listener.bind(("127.0.0.1", 0)); port = listener.getsockname()[1]; listener.close()
-        server = uvicorn.Server(uvicorn.Config(module.app, host="127.0.0.1", port=port, log_level="error"))
-        thread = threading.Thread(target=server.run, daemon=True); thread.start()
-        for _ in range(100):
-            if server.started:
-                break
-            time.sleep(0.01)
-        endpoint = f"http://vpce-fujin-local.s3.us-east-1.fujin.internal:{port}"
-        original_getaddrinfo = socket.getaddrinfo
-        def private_dns(host, *args, **kwargs):
-            # S3 Control intentionally injects the synthetic account prefix.
-            # The production LOCAL DNS wildcard resolves it; emulate only that
-            # private-DNS behavior in this loopback SDK contract test.
-            if str(host).endswith(".fujin.internal"):
-                host = "127.0.0.1"
-            return original_getaddrinfo(host, *args, **kwargs)
-        monkeypatch.setattr(socket, "getaddrinfo", private_dns)
-        config = Config(s3={"addressing_style": "virtual"}, retries={"max_attempts": 0})
-        sts = boto3.client("sts", endpoint_url=endpoint, region_name=bucket.region,
-                           aws_access_key_id=bucket.access_key_id, aws_secret_access_key=bucket.secret_access_key,
-                           config=config)
-        assert sts.get_caller_identity()["Account"] == bucket.account_id
-        assumed = sts.assume_role(RoleArn=bucket.migration_role_arn, RoleSessionName="contract")["Credentials"]
-        s3 = boto3.client("s3", endpoint_url=endpoint, region_name=bucket.region,
-                          aws_access_key_id=assumed["AccessKeyId"], aws_secret_access_key=assumed["SecretAccessKey"],
-                          aws_session_token=assumed["SessionToken"], config=config)
-        assert s3.head_bucket(Bucket=bucket.name)["ResponseMetadata"]["HTTPHeaders"]["x-amz-bucket-region"] == bucket.region
-        listed = s3.list_objects_v2(Bucket=bucket.name)
-        assert listed["KeyCount"] == 1 and listed["Contents"][0]["LastModified"]
-        s3.restore_object(Bucket=bucket.name, Key="object.bin", RestoreRequest={"Days": 1, "GlacierJobParameters": {"Tier": "Bulk"}})
-        assert s3.head_object(Bucket=bucket.name, Key="object.bin")["Restore"]
-        assert s3.get_object(Bucket=bucket.name, Key="object.bin")["Body"].read() == payload
-        s3.put_object(Bucket=bucket.control_bucket, Key="manifest.csv", Body=f"{bucket.name},object.bin\n".encode())
-        assert s3.get_object(Bucket=bucket.control_bucket, Key="manifest.csv")["Body"].read()
-        control = boto3.client("s3control", endpoint_url=endpoint, region_name=bucket.region,
-                                aws_access_key_id=assumed["AccessKeyId"], aws_secret_access_key=assumed["SecretAccessKey"],
-                                aws_session_token=assumed["SessionToken"], config=config)
-        created_job = control.create_job(
-            AccountId=bucket.account_id, ConfirmationRequired=False, Priority=10, RoleArn=bucket.batch_role_arn,
-            Operation={"S3InitiateRestoreObject": {"ExpirationInDays": 1, "GlacierJobTier": "BULK"}},
-            Manifest={"Spec": {"Format": "S3BatchOperations_CSV_20180820", "Fields": ["Bucket", "Key"]},
-                      "Location": {"ObjectArn": f"arn:aws:s3:::{bucket.control_bucket}/manifest.csv", "ETag": "manifest"}},
-            Report={"Bucket": f"arn:aws:s3:::{bucket.control_bucket}", "Prefix": "reports/contract/", "Format": "Report_CSV_20180820", "Enabled": True, "ReportScope": "AllTasks"},
-            Description="contract", ClientRequestToken="local-contract",
-        )
-        progress = control.describe_job(
-            AccountId=bucket.account_id, JobId=created_job["JobId"]
-        )["Job"]["ProgressSummary"]
-        assert progress == {
-            "TotalNumberOfTasks": 1,
-            "NumberOfTasksSucceeded": 1,
-            "NumberOfTasksFailed": 0,
-        }
-
-        # This is the actual Raijin connection pre-check path: its Secret is
-        # structurally a normal AWS Secret and its only provider-specific
-        # inputs are the generic SDK endpoint fields on AwsConnection.
-        password_file = Path(tmp_path) / "raijin-password"
-        password_file.write_text("contract-password", encoding="utf-8")
-        monkeypatch.setenv("DATABASE_URL", f"sqlite+pysqlite:///{Path(tmp_path) / 'raijin-import.db'}")
-        monkeypatch.setenv("POSTGRES_PASSWORD_FILE", str(password_file))
-        monkeypatch.setenv("RAIJIN_OPERATION_MODE", "REAL")
-        import app.main as raijin
-        connection_package = module.s3_connection(created["id"], admin, session=session)
-        serialized_secret = json.dumps(connection_package["secret"], ensure_ascii=False)
-        assert all(ord(character) <= 255 for character in serialized_secret)
-        assert connection_package["secret"]["connection_name"] == f"Fujin LOCAL - {bucket.name}"
-        assert raijin.parse_aws_connection_payload(json.dumps(connection_package["secret"]))["aws_account_id"] == bucket.account_id
-        assert connection_package["secret"]["private_endpoint"] == connection_package["endpoints"]
-        assert connection_package["endpoints"]["tls_ca_bundle_path"] == "/etc/fujin-local-ca/fujin-local.crt"
-        raijin_engine = create_engine(f"sqlite+pysqlite:///{Path(tmp_path) / 'raijin-precheck.db'}")
-        raijin.Base.metadata.create_all(raijin_engine)
-        RaijinSession = sessionmaker(bind=raijin_engine)
-        synthetic_secret = {
-            "schema_version": 1,
-            "connection_name": "local-contract",
-            "aws_account_id": bucket.account_id,
-            "default_region": bucket.region,
-            "bootstrap_access_key_id": bucket.access_key_id,
-            "bootstrap_secret_access_key": bucket.secret_access_key,
-            "migration_role_arn": bucket.migration_role_arn,
-            "batch_operations_role_arn": bucket.batch_role_arn,
-            "control_bucket": bucket.control_bucket,
-        }
-        with RaijinSession() as raijin_session:
-            connection = raijin.AwsConnection(
-                label="ordinary-private-endpoints", secret_ocid="ocid1.vaultsecret.oc1..synthetic",
-                aws_account_id=bucket.account_id, default_region=bucket.region,
-                control_bucket=bucket.control_bucket, sts_endpoint_url=endpoint,
-                s3_endpoint_url=endpoint, s3control_endpoint_url=endpoint,
-                s3_addressing_style="virtual",
-            )
-            raijin_session.add(connection); raijin_session.commit()
-            monkeypatch.setattr(raijin, "aws_secret_payload", lambda _ocid: synthetic_secret)
-            # Event persistence is already covered by the Raijin operational
-            # suite.  SQLite's BIGINT autoincrement difference is irrelevant
-            # to this network contract, so keep this assertion focused on the
-            # real pre-check SDK sequence.
-            monkeypatch.setattr(raijin, "record_event", lambda *_args, **_kwargs: None)
-            checked = raijin.precheck_aws_connection(connection.id, session=raijin_session)
-            assert checked["status"] == "VALIDATED"
-
-            # Exercise the real Raiju copy routine against both local provider
-            # APIs.  No simulator transport is involved: Boto3 reads S3 and
-            # OCI's SDK commits a reference to the validated physical bytes.
-            module.create_oci_bucket(admin, module.OciBucketCreate(namespace="local", name="worker-destination"), session=session)
-            key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-            pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()
-            signer = oci.signer.Signer(
-                "ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                "ocid1.user.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99", None,
-                private_key_content=pem,
-            )
-            oci_client = oci.object_storage.ObjectStorageClient(
-                {"user": "ocid1.user.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                 "tenancy": "ocid1.tenancy.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                 "fingerprint": "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99",
-                 "key_file": "/dev/null", "region": "us-east-1"},
-                signer=signer, service_endpoint=f"http://127.0.0.1:{port}",
-            )
-            import app.real_worker as worker
-            monkeypatch.setattr(worker, "SessionLocal", RaijinSession)
-            monkeypatch.setattr(worker, "object_storage_client", lambda _signer: oci_client)
-            # The worker creates the normal Instance Principal signer before
-            # constructing its OCI SDK client.  The contract replaces only
-            # that external identity acquisition; the actual OCI SDK client
-            # and all data-plane calls still target Fujin.
-            class ContractInstancePrincipal:
-                def __new__(cls):
-                    return signer
-            monkeypatch.setattr(worker.oci.auth.signers, "InstancePrincipalsSecurityTokenSigner", ContractInstancePrincipal)
-            first = raijin.ObjectRecord(id=501, source_id=1, object_key="object.bin", size_bytes=len(payload),
-                                        etag=digest, state=raijin.ObjectState.RESTORED)
-            raijin_session.add(first); raijin_session.commit()
-            worker.transfer_object(s3, "local", bucket.name, "worker-destination", first.id, 0, False)
-            raijin_session.expire_all()
-            assert raijin_session.get(raijin.ObjectRecord, first.id).state == raijin.ObjectState.TRANSFERRED
-            assert oci_client.get_object("local", "worker-destination", "object.bin").data.content == payload
-
-            # A lowered test threshold makes the durable multipart branch
-            # observable without creating an artificial large payload.
-            monkeypatch.setattr(worker, "DIRECT_SHA_LIMIT", 4)
-            multipart = raijin.ObjectRecord(id=502, source_id=1, object_key="object.bin", size_bytes=len(payload),
-                                            etag=digest, state=raijin.ObjectState.RESTORED)
-            multipart.object_key = "multipart.bin"
-            # The source must still resolve an existing physical key; expose a
-            # second logical name with identical immutable evidence.
-            dataset_row = session.get(module.LocalDataset, dataset["id"])
-            manifest = json.loads(dataset_row.manifest_json)
-            manifest["objects"].append({**manifest["objects"][0], "key": "multipart.bin"})
-            dataset_row.manifest_json = json.dumps(manifest); session.commit()
-            s3.restore_object(Bucket=bucket.name, Key="multipart.bin",
-                              RestoreRequest={"Days": 1, "GlacierJobParameters": {"Tier": "Bulk"}})
-            raijin_session.add(multipart); raijin_session.commit()
-            worker.transfer_object(s3, "local", bucket.name, "worker-destination", multipart.id, 0, False,
-                                   configured_multipart_part_size=5)
-            raijin_session.expire_all()
-            transferred_multipart = raijin_session.get(raijin.ObjectRecord, multipart.id)
-            assert transferred_multipart.state == raijin.ObjectState.TRANSFERRED
-            assert transferred_multipart.delivery_integrity_algorithm == "SHA256_MULTIPART"
-            assert oci_client.get_object("local", "worker-destination", "multipart.bin").data.content == payload
-    finally:
-        # Setup can fail before the loopback server is allocated (for example,
-        # in a restricted test sandbox).  Do not let cleanup hide that cause.
-        if "server" in locals():
-            server.should_exit = True
-        if "thread" in locals():
-            thread.join(timeout=3)
-        session.close()
 
 
 def test_local_oci_contract_with_sdk(tmp_path, monkeypatch):

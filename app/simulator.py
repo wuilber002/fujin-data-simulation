@@ -528,9 +528,9 @@ def source_restore_object(payload: RestoreObjectRequest) -> dict:
 
 @app.put("/v1/cloud/source/submit-restore-batch", status_code=201)
 async def source_submit_restore_batch(
-    request: Request, x_raijin_metadata: str = Header(alias="X-Raijin-Metadata")
+    request: Request, x_fujin_metadata: str = Header(alias="X-Fujin-Metadata")
 ) -> dict:
-    payload = decode_metadata(x_raijin_metadata, SubmitRestoreBatchRequest)
+    payload = decode_metadata(x_fujin_metadata, SubmitRestoreBatchRequest)
     try:
         job = engine().create_restore_job(
             str(payload.context.execution_id),
@@ -630,9 +630,9 @@ def destination_read_range(payload: ReadRangeRequest) -> StreamingResponse:
 
 @app.put("/v1/cloud/destination/put-object")
 async def destination_put_object(
-    request: Request, x_raijin_metadata: str = Header(alias="X-Raijin-Metadata")
+    request: Request, x_fujin_metadata: str = Header(alias="X-Fujin-Metadata")
 ) -> dict:
-    payload = decode_metadata(x_raijin_metadata, PutObjectRequest)
+    payload = decode_metadata(x_fujin_metadata, PutObjectRequest)
     received = await consume_request(request, payload.object.size_bytes)
     try:
         return engine().put_object_evidence(
@@ -708,9 +708,9 @@ def destination_create_multipart(payload: MultipartCreateRequest) -> dict:
 
 @app.put("/v1/cloud/destination/upload-part")
 async def destination_upload_part(
-    request: Request, x_raijin_metadata: str = Header(alias="X-Raijin-Metadata")
+    request: Request, x_fujin_metadata: str = Header(alias="X-Fujin-Metadata")
 ) -> dict:
-    payload = decode_metadata(x_raijin_metadata, MultipartPartRequest)
+    payload = decode_metadata(x_fujin_metadata, MultipartPartRequest)
     received = await consume_request(request, payload.size_bytes)
     try:
         return engine().upload_part_evidence(

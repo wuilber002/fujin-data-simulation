@@ -30,7 +30,7 @@ def main() -> None:
     args = arguments()
     if args.objects <= 0 or args.logical_bytes < 0 or not 1 <= args.page_size <= 1_000:
         raise SystemExit("objects must be positive, logical bytes non-negative, page size 1..1000")
-    with tempfile.TemporaryDirectory(prefix="raijin-simulation-scale-") as directory:
+    with tempfile.TemporaryDirectory(prefix="fujin-simulation-scale-") as directory:
         database = Path(directory) / "scale.db"
         engine = create_engine(f"sqlite+pysqlite:///{database}")
         migrate(engine)
@@ -40,7 +40,7 @@ def main() -> None:
             ScenarioCreate(
                 name="scale-validation",
                 fidelity="CONTROL",
-                seed="raijin-scale-validation-v1",
+                seed="fujin-scale-validation-v1",
                 logical_size_bytes=args.logical_bytes,
             )
         )

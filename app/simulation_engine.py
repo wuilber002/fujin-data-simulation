@@ -123,7 +123,7 @@ class SimulatedNetworkUnavailable(ConnectionError):
     """A deterministic, temporary network outage in a simulator profile.
 
     This is an expected scenario condition, never an internal simulator error.
-    The retry hint lets the real Raijin worker advance only the isolated
+    The retry hint lets a consumer worker advance only the isolated
     scenario clock to the end of the outage while keeping the transfer lane
     frozen and its restore window intact.
     """

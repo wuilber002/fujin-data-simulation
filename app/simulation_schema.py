@@ -1,7 +1,7 @@
-"""Persistent catalog owned by the external RAIJIN simulator.
+"""Persistent catalog owned by the external Fujin simulator.
 
 The simulator never imports the control-plane models.  Its tables use an
-explicit ``sim_`` prefix and are created only by ``scripts/migrate-simulation.py``.
+explicit ``sim_`` prefix and are created only by ``scripts/migrate-fujin-simulator.py``.
 This keeps schema changes deliberate and prepares the backend to move to its
 own service/database without changing its contract.
 """

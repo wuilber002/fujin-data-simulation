@@ -17,7 +17,7 @@ import uuid
 from sqlalchemy import Engine, URL, create_engine, delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.runtime_context import RuntimeIsolationError, database_name
+from app.runtime_context import FujinConfigurationError, database_name
 from app.simulation_migrations import current_revision
 from app.simulation_schema import (
     DEFAULT_DATA_PHYSICAL_BUDGET_BYTES,
@@ -70,9 +70,9 @@ def simulator_database_url(environ: dict[str, str] | None = None) -> str:
     values = os.environ if environ is None else environ
     raw_url = values.get("FUJIN_SIMULATOR_DATABASE_URL") or values.get("DATABASE_URL") or ""
     if not raw_url:
-        raise RuntimeIsolationError("FUJIN_SIMULATOR_DATABASE_URL is required")
-    if database_name(raw_url) != "migration_simulation" and not raw_url.startswith("sqlite"):
-        raise RuntimeIsolationError("Simulator requires the migration_simulation database")
+        raise FujinConfigurationError("FUJIN_SIMULATOR_DATABASE_URL is required")
+    if database_name(raw_url) != "fujin_simulator" and not raw_url.startswith("sqlite"):
+        raise FujinConfigurationError("Simulator requires the fujin_simulator database")
     forbidden = [
         name
         for name in (
@@ -85,7 +85,7 @@ def simulator_database_url(environ: dict[str, str] | None = None) -> str:
         if values.get(name)
     ]
     if forbidden:
-        raise RuntimeIsolationError(
+        raise FujinConfigurationError(
             "Simulator refuses cloud credentials: " + ", ".join(sorted(forbidden))
         )
     return _database_url_with_password(
@@ -132,7 +132,7 @@ class SimulatorStore:
         if revision != SIMULATION_SCHEMA_VERSION:
             raise RuntimeError(
                 f"Simulator schema revision {revision}; expected {SIMULATION_SCHEMA_VERSION}. "
-                "Run scripts/migrate-simulation.py before enabling operations."
+                "Run scripts/migrate-fujin-simulator.py before enabling operations."
             )
 
     def ensure_generator_release(self) -> None:
@@ -433,7 +433,7 @@ class SimulatorStore:
             return session.get(SimulationExecution, execution_id)
 
     def list_scenario_executions(self, scenario_id: str) -> list[SimulationExecution]:
-        """List durable executions so Raijin can recover an interrupted bind."""
+        """List durable executions so a consumer can recover an interrupted bind."""
         self.require_current_schema()
         with self.sessions() as session:
             return list(session.scalars(
@@ -735,7 +735,7 @@ class SimulatorStore:
     def purge_scenario(self, scenario_id: str, reason: str) -> dict:
         """Remove catalog payload/evidence after quarantine, retaining a tombstone.
 
-        The simulator deliberately cannot prove that the Raijin control plane
+        The simulator deliberately cannot prove that the consumer control plane
         has archived every reference. Its public endpoint is therefore called
         only through the control-plane guard that performs that cross-database
         audit first.

@@ -31,7 +31,7 @@ from app.simulation_schema import (
 )
 
 
-DEFAULT_PAYLOAD_ROOT = "/var/lib/raijin-fujin-payloads"
+DEFAULT_PAYLOAD_ROOT = "/var/lib/fujin-data-simulation/payloads"
 DEFAULT_CHUNK_BYTES = 1024 * 1024
 DEFAULT_MAX_OPEN_FILES = 16
 
@@ -142,7 +142,7 @@ def host_telemetry(root: Path) -> dict:
 
 def repository_root(environ: dict[str, str] | None = None) -> Path:
     values = os.environ if environ is None else environ
-    configured = values.get("RAIJIN_FUJIN_PAYLOAD_ROOT", DEFAULT_PAYLOAD_ROOT)
+    configured = values.get("FUJIN_PAYLOAD_ROOT", DEFAULT_PAYLOAD_ROOT)
     root = Path(configured).expanduser()
     if not root.is_absolute():
         raise FujinPayloadError("Fujin payload root must be an absolute path")

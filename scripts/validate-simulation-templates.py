@@ -21,17 +21,17 @@ from app.simulator_store import ScenarioCreate, SimulatorStore
 
 
 REGISTERED_TEMPLATE_SEEDS = {
-    "Ideal control": "raijin-template-ideal-control-v1",
-    "Rapid restore": "raijin-template-rapid-restore-v1",
-    "Slow restore": "raijin-template-slow-restore-v1",
-    "Gradual restore": "raijin-template-gradual-restore-v1",
-    "Degraded network": "raijin-template-degraded-network-v1",
-    "Oscillating network": "raijin-template-oscillating-network-v1",
-    "Partial restore failures": "raijin-template-partial-restore-v1",
-    "Insufficient retention": "raijin-template-insufficient-retention-v1",
-    "Multipart interrupted": "raijin-template-multipart-interrupted-v1",
-    "Deterministic corruption": "raijin-template-corruption-v1",
-    "Transient throttling": "raijin-template-throttling-v1",
+    "Ideal control": "fujin-template-ideal-control-v1",
+    "Rapid restore": "fujin-template-rapid-restore-v1",
+    "Slow restore": "fujin-template-slow-restore-v1",
+    "Gradual restore": "fujin-template-gradual-restore-v1",
+    "Degraded network": "fujin-template-degraded-network-v1",
+    "Oscillating network": "fujin-template-oscillating-network-v1",
+    "Partial restore failures": "fujin-template-partial-restore-v1",
+    "Insufficient retention": "fujin-template-insufficient-retention-v1",
+    "Multipart interrupted": "fujin-template-multipart-interrupted-v1",
+    "Deterministic corruption": "fujin-template-corruption-v1",
+    "Transient throttling": "fujin-template-throttling-v1",
 }
 
 
@@ -101,7 +101,7 @@ def execute_data_path(
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="raijin-template-validation-") as directory:
+    with tempfile.TemporaryDirectory(prefix="fujin-template-validation-") as directory:
         engine = create_engine(f"sqlite+pysqlite:///{Path(directory) / 'templates.db'}")
         migrate(engine)
         store = SimulatorStore(engine)

@@ -1,4 +1,4 @@
-"""HTTP adapters implementing the typed cloud ports against raijin-simulator."""
+"""HTTP adapters implementing typed cloud ports against Fujin."""
 
 from __future__ import annotations
 
@@ -120,7 +120,7 @@ class SimulatorHttpTransport:
                 body=chunks,
                 headers={
                     "Content-Type": "application/octet-stream",
-                    "X-Raijin-Metadata": encoded,
+                    "X-Fujin-Metadata": encoded,
                 },
                 encode_chunked=True,
             )

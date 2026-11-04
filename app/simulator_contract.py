@@ -1,4 +1,4 @@
-"""Versioned wire contract shared by RAIJIN and the simulator service."""
+"""Versioned wire contract exposed by the Fujin simulator service."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from app.runtime_context import SIMULATOR_CONTRACT_VERSION, SIMULATOR_SERVICE_VE
 
 
 class SimulatorHandshake(BaseModel):
-    service: str = "raijin-simulator"
+    service: str = "fujin-simulator"
     service_version: str = SIMULATOR_SERVICE_VERSION
     contract_version: str = SIMULATOR_CONTRACT_VERSION
     operations_enabled: bool = False
@@ -32,7 +32,7 @@ def validate_handshake(
     expected_contract: str = SIMULATOR_CONTRACT_VERSION,
     require_operations: bool = False,
 ) -> SimulatorHandshake:
-    if handshake.service != "raijin-simulator":
+    if handshake.service != "fujin-simulator":
         raise SimulatorContractError("Unexpected simulator service identity")
     if handshake.contract_version != expected_contract:
         raise SimulatorContractError(

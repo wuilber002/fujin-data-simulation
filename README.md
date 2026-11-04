@@ -29,6 +29,26 @@ For validation without containers:
 PYTHONPATH=. pytest -q -p no:cacheprovider
 ```
 
+## Instalação manual em uma VM
+
+O instalador usa Podman, mantém os dados em `/var/lib/fujin-data-simulation`
+e publica a console e o simulador somente em loopback. Não requer Terraform
+nem compartilha banco, volume ou processo com o consumidor.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/wuilber002/fujin-data-simulation/main/scripts/install-fujin.sh \
+  | sudo bash
+
+sudo systemctl status fujin-data-simulation.service
+curl -fsS http://127.0.0.1:8090/healthz
+curl -fsS http://127.0.0.1:8091/healthz
+```
+
+Para expor os serviços com TLS, coloque um proxy reverso à frente dos dois
+endpoints ou altere `/etc/fujin-data-simulation/fujin.env` e reinicie o
+serviço. As credenciais de qualquer consumidor devem ser configuradas nele;
+Fujin não recebe nem armazena credenciais AWS ou OCI reais.
+
 ## Integration boundary
 
 Before connecting a consumer, create and validate a dataset, create the

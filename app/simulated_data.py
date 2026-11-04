@@ -8,7 +8,7 @@ import hashlib
 from typing import Iterable, Iterator
 
 
-GENERATOR_VERSION = "RAIJIN-DATA-V1"
+GENERATOR_VERSION = "FUJIN-DATA-V1"
 GENERATOR_BLOCK_BYTES = 1024 * 1024
 DEFAULT_STREAM_CHUNK_BYTES = 1024 * 1024
 
@@ -43,7 +43,7 @@ def _generator_identity(descriptor: VirtualContentDescriptor) -> bytes:
         descriptor.object_version,
     )
     encoded = [field.encode("utf-8") for field in fields]
-    return b"RAIJIN\0" + b"".join(len(field).to_bytes(4, "big") + field for field in encoded)
+    return b"FUJIN\0" + b"".join(len(field).to_bytes(4, "big") + field for field in encoded)
 
 
 def deterministic_block(descriptor: VirtualContentDescriptor, block_index: int) -> bytes:

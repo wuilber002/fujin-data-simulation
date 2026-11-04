@@ -1,7 +1,7 @@
 """Persistent, isolated catalogue for Fujin LOCAL.
 
 LOCAL must never reuse the ``sim_*`` execution state.  This module owns only
-the provider-side catalogue; it deliberately does not import Raijin models or
+the provider-side catalogue; it deliberately does not import consumer models or
 the Simulation schema.  Physical payload paths are always relative to the
 Fujin-managed repository root.
 """
@@ -42,9 +42,9 @@ class LocalSchemaRevision(LocalBase):
 class LocalProviderState(LocalBase):
     """The explicit LOCAL data-plane switch, owned solely by Fujin.
 
-    A Raijin process never reads this table.  Keeping the provider disabled
+    No consumer process reads this table.  Keeping the provider disabled
     until an administrator enables it makes accidental use of synthetic
-    endpoints much less likely while preserving Raijin's normal REAL mode.
+    endpoints much less likely while preserving independent consumer deployment.
     """
     __tablename__ = "local_provider_state"
 
@@ -276,12 +276,12 @@ class LocalAuditEvent(LocalBase):
 
 
 def migrate(database_url: str) -> None:
-    """Explicit LOCAL migration; never invoked by Raijin application startup."""
+    """Explicit LOCAL migration; never invoked by consumer application startup."""
     engine = create_engine(database_url)
     LocalBase.metadata.create_all(engine)
     # ``create_all`` does not add columns to a database created by an earlier
     # LOCAL preview.  Keep this narrow, idempotent migration explicit and
-    # isolated from Raijin's own database migrations.
+    # isolated from any consumer database migrations.
     expected_audit_columns = {
         "endpoint": "VARCHAR(2300)", "latency_ms": "INTEGER",
         "bytes_transferred": "BIGINT", "retry_count": "INTEGER",
